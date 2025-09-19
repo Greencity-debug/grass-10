@@ -1,0 +1,112 @@
+.sidebar {
+  width: 300px;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  background-color: #f0f4f8;
+  border-right: 1px solid #e2e8f0;
+  padding: 1.5rem 1rem;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.titleContainer {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.titleLink {
+  text-decoration: none;
+}
+
+.title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #3B5927;
+  cursor: pointer;
+  margin: 0;
+}
+
+.version {
+  font-size: 1rem;
+  color: #A3C683;
+}
+
+.backButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #5F8544;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.2s;
+}
+
+.backButton:hover {
+  background-color: #e2e8f0;
+  transform: scale(1.05);
+}
+
+.navSections {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.section h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #5F8544;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 2px solid #A3C683;
+}
+
+/* Стили для кнопок-инструментов */
+.toolList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.toolButton {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.toolButton:hover {
+  background-color: #f3f9f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.toolIcon {
+  color: #5F8544;
+  font-size: 1.25rem;
+}
+
+.toolText {
+  color: #1A2312;
+  font-weight: 500;
+}
