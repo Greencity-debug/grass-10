@@ -5,23 +5,25 @@ import animationData from "./animation.json";
 
 export default function HomePage() {
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100vh',
-      backgroundColor: '#f0f0f0',
-      fontFamily: 'sans-serif'
-    }}>
-      <h1>Добро пожаловать в наше ГИС-приложение!</h1>
-      <p>Давайте начнем создавать что-то удивительное.</p>
-      <div style={{ marginTop: '20px' }}>
-        <Lottie
-          animationData={animationData}
-          style={{ width: 500, height: 500 }}
-        />
+    <main className="welcome-container">
+      <div className="content-box">
+        <h1 className="title">
+          Grasscutter
+          <span className="subtitle-title">
+            Система управления зеленым хозяйством
+          </span>
+        </h1>
+        <div className="button-container">
+          <button className="button primary-button">Режим наблюдателя</button>
+          <button className="button secondary-button">Режим управления</button>
+        </div>
+        <div className="animation-wrapper">
+          <Lottie
+            animationData={animationData}
+            style={{ width: 400, height: 400 }}
+          />
+        </div>
       </div>
-    </div>
+    </main>
   );
 }

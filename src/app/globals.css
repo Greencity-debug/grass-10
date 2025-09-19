@@ -1,42 +1,101 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html,
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #f0f4f8;
+  color: #1A2312;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
+h1, p {
   margin: 0;
+  padding: 0;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* Стили для главной страницы */
+.welcome-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+.content-box {
+  background-color: #ffffff;
+  padding: 3rem 2rem;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  max-width: 600px;
+  width: 100%;
+}
+
+.title {
+  font-size: 2.5rem; /* Немного увеличил основной заголовок для контраста */
+  font-weight: 600;
+  color: #3B5927;
+  margin-bottom: 2rem;
+  line-height: 1.2;
+}
+
+.subtitle-title {
+  display: block; /* Перемещает текст на новую строку */
+  font-size: 1.5rem; /* Уменьшаем размер на 2 пункта (примерно 32px vs 24px) */
+  font-weight: 400;
+  color: #5F8544;
+  margin-top: 0.5rem;
+}
+
+.animation-wrapper {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: center;
+}
+
+/* Стили для кнопок */
+.button-container {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+  justify-content: center;
+}
+
+.button {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.button:hover {
+  transform: translateY(-2px);
+}
+
+/* Стили для "Режима наблюдателя" */
+.primary-button {
+  background-color: #5F8544;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(95, 133, 68, 0.3);
+}
+
+.primary-button:hover {
+  box-shadow: 0 6px 16px rgba(95, 133, 68, 0.4);
+}
+
+/* Стили для "Режима управления" */
+.secondary-button {
+  background-color: #ffffff;
+  color: #5F8544;
+  border: 2px solid #5F8544;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.secondary-button:hover {
+  background-color: #f3f9f0;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
 }
