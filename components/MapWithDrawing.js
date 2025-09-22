@@ -7,7 +7,6 @@ const MapWithDrawing = ({ onBack }) => {
   const mapRef = useRef(null)
   const [map, setMap] = useState(null)
   const [layers, setLayers] = useState([])
-  const [selectedLayer, setSelectedLayer] = useState(null)
   const [isDrawing, setIsDrawing] = useState(false)
   const [currentPolygon, setCurrentPolygon] = useState(null)
   const [drawingPoints, setDrawingPoints] = useState([])
@@ -15,10 +14,19 @@ const MapWithDrawing = ({ onBack }) => {
   const [polygons, setPolygons] = useState([])
   const [mapMode, setMapMode] = useState('scheme')
   const [currentTileLayer, setCurrentTileLayer] = useState(null)
+  const [showCreateLayerModal, setShowCreateLayerModal] = useState(false)
+  const [showEditLayerModal, setShowEditLayerModal] = useState(false)
+  const [editingLayer, setEditingLayer] = useState(null)
+  const [layerVisibility, setLayerVisibility] = useState({})
+  const [draggedLayer, setDraggedLayer] = useState(null)
   const [polygonData, setPolygonData] = useState({
     name: '',
     description: '',
     layerId: ''
+  })
+  const [newLayerData, setNewLayerData] = useState({
+    name: '',
+    color: '#4CAF50'
   })
 
   useEffect(() => {
@@ -32,20 +40,17 @@ const MapWithDrawing = ({ onBack }) => {
   }, [])
 
   useEffect(() => {
-    // Добавляем небольшую задержку для полной загрузки DOM
     const timer = setTimeout(() => {
       if (typeof window !== 'undefined' && mapRef.current && !map) {
         initializeMap()
       }
     }, 100)
-
     return () => clearTimeout(timer)
   }, [])
 
   const initializeMap = () => {
     const L = require('leaflet')
     
-    // Убираем все существующие карты из элемента
     if (mapRef.current) {
       mapRef.current.innerHTML = ''
       if (mapRef.current._leaflet_id) {
@@ -53,7 +58,6 @@ const MapWithDrawing = ({ onBack }) => {
       }
     }
     
-    // Исправляем иконки Leaflet
     delete L.Icon.Default.prototype._getIconUrl
     L.Icon.Default.mergeOptions({
       iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
@@ -75,7 +79,6 @@ const MapWithDrawing = ({ onBack }) => {
         attributionControl: true
       })
       
-      // Используем Яндекс.Карты как источник по умолчанию (схема)
       const tileLayer = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
         attribution: '© Яндекс',
         maxZoom: 19
@@ -85,7 +88,6 @@ const MapWithDrawing = ({ onBack }) => {
       mapInstance.on('click', handleMapClick)
       setMap(mapInstance)
 
-      // Принудительно обновляем размеры карты несколько раз
       setTimeout(() => mapInstance.invalidateSize(), 100)
       setTimeout(() => mapInstance.invalidateSize(), 300)
       setTimeout(() => mapInstance.invalidateSize(), 1000)
@@ -101,6 +103,10 @@ const MapWithDrawing = ({ onBack }) => {
     }
   }, [map])
 
+  useEffect(() => {
+    updatePolygonVisibility()
+  }, [layerVisibility, polygons])
+
   const switchMapMode = (mode) => {
     if (!map || !currentTileLayer) return
     
@@ -111,21 +117,18 @@ const MapWithDrawing = ({ onBack }) => {
     
     switch (mode) {
       case 'scheme':
-        // Яндекс.Карты - схема
         newTileLayer = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
           attribution: '© Яндекс',
           maxZoom: 19
         })
         break
       case 'satellite':
-        // Яндекс.Карты - спутник
         newTileLayer = L.tileLayer('https://core-sat.maps.yandex.net/tiles?l=sat&v=3.1072.0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
           attribution: '© Яндекс',
           maxZoom: 19
         })
         break
       case 'hybrid':
-        // Яндекс.Карты - гибрид (спутник + схема)
         newTileLayer = L.layerGroup([
           L.tileLayer('https://core-sat.maps.yandex.net/tiles?l=sat&v=3.1072.0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
             attribution: '© Яндекс',
@@ -150,21 +153,64 @@ const MapWithDrawing = ({ onBack }) => {
   }
 
   const loadLayers = async () => {
-    const { data, error } = await supabase
-      .from('layers')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    if (data) {
-      setLayers(data)
-      if (data.length > 0 && !selectedLayer) {
-        setSelectedLayer(data[0])
+    try {
+      const { data, error } = await supabase
+        .from('layers')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (error) {
+        console.error('🚨 Ошибка загрузки слоёв:', error)
+        return
       }
+      
+      if (data) {
+        setLayers(data)
+        
+        const visibility = {}
+        data.forEach(layer => {
+          visibility[layer.id] = true
+        })
+        setLayerVisibility(visibility)
+      }
+    } catch (err) {
+      console.error('💥 Критическая ошибка:', err)
     }
   }
 
+  // Функции для drag & drop слоёв
+  const handleDragStart = (e, layer) => {
+    setDraggedLayer(layer)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDrop = (e, targetLayer) => {
+    e.preventDefault()
+    
+    if (!draggedLayer || draggedLayer.id === targetLayer.id) {
+      setDraggedLayer(null)
+      return
+    }
+
+    const newLayers = [...layers]
+    const draggedIndex = newLayers.findIndex(l => l.id === draggedLayer.id)
+    const targetIndex = newLayers.findIndex(l => l.id === targetLayer.id)
+    
+    // Переставляем элементы
+    newLayers.splice(draggedIndex, 1)
+    newLayers.splice(targetIndex, 0, draggedLayer)
+    
+    setLayers(newLayers)
+    setDraggedLayer(null)
+  }
+
   const handleMapClick = (e) => {
-    if (!isDrawing || !selectedLayer) return
+    if (!isDrawing) return
 
     const point = [e.latlng.lat, e.latlng.lng]
     const newPoints = [...drawingPoints, point]
@@ -196,8 +242,8 @@ const MapWithDrawing = ({ onBack }) => {
     }
 
     const polygon = L.polygon(points, {
-      color: selectedLayer?.color || '#4CAF50',
-      fillColor: selectedLayer?.color || '#4CAF50',
+      color: '#2196F3',
+      fillColor: '#2196F3',
       fillOpacity: 0.3,
       weight: 2
     }).addTo(map)
@@ -205,9 +251,24 @@ const MapWithDrawing = ({ onBack }) => {
     setCurrentPolygon(polygon)
   }
 
+  const updatePolygonVisibility = () => {
+    if (!map || !polygons.length) return
+
+    polygons.forEach(polygon => {
+      if (polygon.leafletLayer) {
+        const isVisible = layerVisibility[polygon.layer_id]
+        if (isVisible && !map.hasLayer(polygon.leafletLayer)) {
+          map.addLayer(polygon.leafletLayer)
+        } else if (!isVisible && map.hasLayer(polygon.leafletLayer)) {
+          map.removeLayer(polygon.leafletLayer)
+        }
+      }
+    })
+  }
+
   const startDrawing = () => {
-    if (!selectedLayer) {
-      alert('Выберите слой для рисования')
+    if (layers.length === 0) {
+      alert('Создайте хотя бы один слой для рисования')
       return
     }
     setIsDrawing(true)
@@ -242,6 +303,11 @@ const MapWithDrawing = ({ onBack }) => {
       return
     }
 
+    if (!polygonData.layerId) {
+      alert('Выберите слой для полигона')
+      return
+    }
+
     const closedPoints = [...drawingPoints, drawingPoints[0]]
     const geoJson = {
       type: 'Polygon',
@@ -253,7 +319,7 @@ const MapWithDrawing = ({ onBack }) => {
       .insert({
         name: polygonData.name,
         description: polygonData.description,
-        layer_id: polygonData.layerId || selectedLayer.id,
+        layer_id: polygonData.layerId,
         geometry: geoJson
       })
 
@@ -295,11 +361,15 @@ const MapWithDrawing = ({ onBack }) => {
             fillColor: polygon.layers?.color || '#4CAF50',
             fillOpacity: 0.3,
             weight: 2
-          }).addTo(map).bindPopup(`
+          }).bindPopup(`
             <strong>${polygon.name}</strong><br>
             ${polygon.description || ''}<br>
             Площадь: ${polygon.square ? (polygon.square / 10000).toFixed(2) + ' га' : 'не рассчитана'}
           `)
+
+          if (layerVisibility[polygon.layer_id] !== false) {
+            leafletLayer.addTo(map)
+          }
 
           return { ...polygon, leafletLayer }
         }
@@ -310,20 +380,92 @@ const MapWithDrawing = ({ onBack }) => {
     }
   }
 
-  const createLayer = async () => {
-    const name = prompt('Введите название нового слоя:')
-    if (!name) return
+  const createLayer = () => {
+    setShowCreateLayerModal(true)
+  }
 
-    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#F44336', '#9C27B0', '#607D8B']
-    const randomColor = colors[Math.floor(Math.random() * colors.length)]
+  const saveNewLayer = async () => {
+    if (!newLayerData.name.trim()) {
+      alert('Введите название слоя')
+      return
+    }
 
     const { data, error } = await supabase
       .from('layers')
-      .insert({ name, color: randomColor })
+      .insert({
+        name: newLayerData.name,
+        color: newLayerData.color
+      })
 
-    if (!error) {
+    if (error) {
+      console.error('Ошибка создания слоя:', error)
+      alert('Ошибка создания слоя')
+    } else {
+      alert('Слой успешно создан')
+      setShowCreateLayerModal(false)
+      setNewLayerData({ name: '', color: '#4CAF50' })
       loadLayers()
     }
+  }
+
+  const editLayer = (layer) => {
+    setEditingLayer(layer)
+    setNewLayerData({ name: layer.name, color: layer.color })
+    setShowEditLayerModal(true)
+  }
+
+  const saveEditedLayer = async () => {
+    if (!newLayerData.name.trim()) {
+      alert('Введите название слоя')
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('layers')
+      .update({
+        name: newLayerData.name,
+        color: newLayerData.color
+      })
+      .eq('id', editingLayer.id)
+
+    if (error) {
+      console.error('Ошибка редактирования слоя:', error)
+      alert('Ошибка редактирования слоя')
+    } else {
+      alert('Слой успешно обновлён')
+      setShowEditLayerModal(false)
+      setEditingLayer(null)
+      setNewLayerData({ name: '', color: '#4CAF50' })
+      loadLayers()
+      loadPolygons()
+    }
+  }
+
+  const deleteLayer = async (layer) => {
+    if (!confirm(`Удалить слой "${layer.name}"? Все полигоны этого слоя тоже будут удалены.`)) {
+      return
+    }
+
+    const { error } = await supabase
+      .from('layers')
+      .delete()
+      .eq('id', layer.id)
+
+    if (error) {
+      console.error('Ошибка удаления слоя:', error)
+      alert('Ошибка удаления слоя')
+    } else {
+      alert('Слой успешно удалён')
+      loadLayers()
+      loadPolygons()
+    }
+  }
+
+  const toggleLayerVisibility = (layerId) => {
+    setLayerVisibility(prev => ({
+      ...prev,
+      [layerId]: !prev[layerId]
+    }))
   }
 
   const handleBackClick = () => {
@@ -346,9 +488,9 @@ const MapWithDrawing = ({ onBack }) => {
         padding: '20px',
         zIndex: 1000
       }}>
-        <div style={{ marginBottom: '30px' }}>
+        {/* КОМПАКТНАЯ ШАПКА */}
+        <div style={{ marginBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-            {/* iOS-стиль стрелка назад - уменьшенная и светло-серая */}
             <button 
               onClick={handleBackClick}
               style={{
@@ -394,28 +536,27 @@ const MapWithDrawing = ({ onBack }) => {
           <div style={{ 
             height: '1px', 
             background: '#e0e0e0',
-            margin: '15px 0'
+            margin: '10px 0'
           }}></div>
         </div>
 
-        <div style={{ marginBottom: '30px', flex: 1 }}>
+        {/* КОМПАКТНЫЕ ИНСТРУМЕНТЫ */}
+        <div style={{ marginBottom: '15px' }}>
           <h3 style={{ 
             fontSize: '16px',
             color: '#333',
-            marginBottom: '15px',
+            marginBottom: '10px',
             fontWeight: '600'
           }}>
             Инструменты
           </h3>
           
-          {/* Новые кнопки в одну строку */}
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between',
             gap: '8px',
-            marginBottom: '15px'
+            marginBottom: isDrawing ? '15px' : '0'
           }}>
-            {/* Удалить */}
             <button 
               disabled
               style={{ 
@@ -431,14 +572,12 @@ const MapWithDrawing = ({ onBack }) => {
                 minHeight: '60px'
               }}
             >
-              {/* Иконка удаления в стиле Material 3 */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill="#aaa" style={{ marginBottom: '4px' }}>
                 <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
               </svg>
               <span style={{ fontSize: '10px', color: '#aaa' }}>Удалить</span>
             </button>
 
-            {/* Изменить */}
             <button 
               disabled
               style={{ 
@@ -454,14 +593,12 @@ const MapWithDrawing = ({ onBack }) => {
                 minHeight: '60px'
               }}
             >
-              {/* Иконка редактирования в стиле Material 3 */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill="#aaa" style={{ marginBottom: '4px' }}>
                 <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
               </svg>
               <span style={{ fontSize: '10px', color: '#aaa' }}>Изменить</span>
             </button>
 
-            {/* Добавить */}
             <button 
               onClick={isDrawing ? cancelDrawing : startDrawing}
               style={{ 
@@ -478,7 +615,6 @@ const MapWithDrawing = ({ onBack }) => {
                 transition: 'all 0.2s'
               }}
             >
-              {/* Иконка добавления в стиле Material 3 */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill={isDrawing ? '#2196F3' : '#333'} style={{ marginBottom: '4px' }}>
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
               </svg>
@@ -486,9 +622,8 @@ const MapWithDrawing = ({ onBack }) => {
             </button>
           </div>
 
-          {/* Кнопки управления рисованием */}
           {isDrawing && (
-            <div style={{ marginTop: '20px' }}>
+            <div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button 
                   onClick={finishDrawing}
@@ -542,18 +677,20 @@ const MapWithDrawing = ({ onBack }) => {
           )}
         </div>
 
+        {/* КОМПАКТНЫЙ РАЗДЕЛИТЕЛЬ */}
         <div style={{ 
           height: '1px', 
           background: '#e0e0e0',
-          margin: '20px 0'
+          margin: '15px 0'
         }}></div>
 
-        <div>
+        {/* КОМПАКТНЫЕ СЛОИ */}
+        <div style={{ flex: 1 }}>
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
             alignItems: 'center',
-            marginBottom: '15px'
+            marginBottom: '10px'
           }}>
             <h3 style={{ 
               fontSize: '16px',
@@ -584,27 +721,68 @@ const MapWithDrawing = ({ onBack }) => {
           </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {layers.map(layer => (
-              <label 
+            {layers.map((layer, index) => (
+              <div
                 key={layer.id} 
+                draggable
+                onDragStart={(e) => handleDragStart(e, layer)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, layer)}
                 style={{ 
                   display: 'flex', 
                   alignItems: 'center',
                   fontSize: '14px',
-                  color: '#333',
-                  cursor: 'pointer',
-                  padding: '6px',
+                  padding: '8px',
                   borderRadius: '4px',
-                  backgroundColor: selectedLayer?.id === layer.id ? '#f0f8f0' : 'transparent'
+                  backgroundColor: 'transparent',
+                  border: '1px solid transparent',
+                  cursor: 'grab'
                 }}
               >
-                <input 
-                  type="radio"
-                  name="selectedLayer"
-                  checked={selectedLayer?.id === layer.id}
-                  onChange={() => setSelectedLayer(layer)}
-                  style={{ marginRight: '8px' }}
-                />
+                {/* Иконка перетаскивания */}
+                <div style={{ 
+                  marginRight: '6px', 
+                  color: '#ccc',
+                  fontSize: '12px',
+                  cursor: 'grab'
+                }}>
+                  ⋮⋮
+                </div>
+
+                <button
+                  onClick={() => deleteLayer(layer)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    marginRight: '6px',
+                    color: '#666'
+                  }}
+                  title="Удалить слой"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                  </svg>
+                </button>
+
+                <button
+                  onClick={() => editLayer(layer)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    marginRight: '8px',
+                    color: '#666'
+                  }}
+                  title="Редактировать слой"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                  </svg>
+                </button>
+
                 <div 
                   style={{
                     width: '12px',
@@ -614,21 +792,58 @@ const MapWithDrawing = ({ onBack }) => {
                     marginRight: '8px'
                   }}
                 ></div>
-                {layer.name}
-              </label>
+
+                <span style={{ flex: 1, color: '#333' }}>{layer.name}</span>
+
+                {/* Switch видимости */}
+                <label style={{ 
+                  position: 'relative', 
+                  display: 'inline-block', 
+                  width: '32px', 
+                  height: '18px',
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={layerVisibility[layer.id] !== false}
+                    onChange={() => toggleLayerVisibility(layer.id)}
+                    style={{ display: 'none' }}
+                  />
+                  <span style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: layerVisibility[layer.id] !== false ? '#4A5D23' : '#ccc',
+                    borderRadius: '18px',
+                    transition: 'all 0.2s'
+                  }}>
+                    <span style={{
+                      position: 'absolute',
+                      content: '',
+                      height: '14px',
+                      width: '14px',
+                      left: layerVisibility[layer.id] !== false ? '16px' : '2px',
+                      bottom: '2px',
+                      backgroundColor: 'white',
+                      borderRadius: '50%',
+                      transition: 'all 0.2s'
+                    }}></span>
+                  </span>
+                </label>
+              </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Контейнер карты с явным позиционированием */}
       <div style={{ 
         flex: 1, 
         height: '100vh', 
         position: 'relative',
         overflow: 'hidden'
       }}>
-        {/* Кнопки переключения режима карты */}
         <div style={{
           position: 'absolute',
           top: '15px',
@@ -686,7 +901,6 @@ const MapWithDrawing = ({ onBack }) => {
           </button>
         </div>
         
-        {/* Контейнер карты с фиксированными размерами */}
         <div 
           ref={mapRef} 
           style={{ 
@@ -699,6 +913,7 @@ const MapWithDrawing = ({ onBack }) => {
         />
       </div>
 
+      {/* Все модальные окна остаются такими же... */}
       {showModal && (
         <div style={{
           position: 'fixed',
@@ -719,7 +934,7 @@ const MapWithDrawing = ({ onBack }) => {
             minWidth: '400px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
           }}>
-            <h3 style={{ margin: '0 0 20px 0' }}>Сохранение полигона</h3>
+            <h3 style={{ margin: '0 0 20px 0' }}>Карточка полигона</h3>
             
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
@@ -762,10 +977,10 @@ const MapWithDrawing = ({ onBack }) => {
 
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Слой:
+                Слой*:
               </label>
               <select 
-                value={polygonData.layerId || selectedLayer?.id || ''}
+                value={polygonData.layerId || ''}
                 onChange={(e) => setPolygonData({...polygonData, layerId: e.target.value})}
                 style={{ 
                   width: '100%', 
@@ -775,6 +990,7 @@ const MapWithDrawing = ({ onBack }) => {
                   fontSize: '14px'
                 }}
               >
+                <option value="">Выберите слой...</option>
                 {layers.map(layer => (
                   <option key={layer.id} value={layer.id}>{layer.name}</option>
                 ))}
@@ -799,6 +1015,233 @@ const MapWithDrawing = ({ onBack }) => {
               </button>
               <button 
                 onClick={() => setShowModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  backgroundColor: '#757575',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateLayerModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 2000
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '25px',
+            borderRadius: '12px',
+            minWidth: '400px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+          }}>
+            <h3 style={{ margin: '0 0 20px 0' }}>Создание нового слоя</h3>
+            
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Название слоя*:
+              </label>
+              <input
+                type="text"
+                value={newLayerData.name}
+                onChange={(e) => setNewLayerData({...newLayerData, name: e.target.value})}
+                style={{ 
+                  width: '100%', 
+                  padding: '8px', 
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+                placeholder="Введите название слоя"
+              />
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Цвет:
+              </label>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="color"
+                  value={newLayerData.color}
+                  onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})}
+                  style={{ 
+                    width: '50px', 
+                    height: '35px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                />
+                <input
+                  type="text"
+                  value={newLayerData.color}
+                  onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})}
+                  style={{ 
+                    flex: 1,
+                    padding: '8px', 
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                  placeholder="#4CAF50"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                onClick={saveNewLayer}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  backgroundColor: '#4A5D23',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Создать
+              </button>
+              <button 
+                onClick={() => {
+                  setShowCreateLayerModal(false)
+                  setNewLayerData({ name: '', color: '#4CAF50' })
+                }}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  backgroundColor: '#757575',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditLayerModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 2000
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '25px',
+            borderRadius: '12px',
+            minWidth: '400px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+          }}>
+            <h3 style={{ margin: '0 0 20px 0' }}>Редактирование слоя</h3>
+            
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Название слоя*:
+              </label>
+              <input
+                type="text"
+                value={newLayerData.name}
+                onChange={(e) => setNewLayerData({...newLayerData, name: e.target.value})}
+                style={{ 
+                  width: '100%', 
+                  padding: '8px', 
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+                placeholder="Введите название слоя"
+              />
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Цвет:
+              </label>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="color"
+                  value={newLayerData.color}
+                  onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})}
+                  style={{ 
+                    width: '50px', 
+                    height: '35px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                />
+                <input
+                  type="text"
+                  value={newLayerData.color}
+                  onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})}
+                  style={{ 
+                    flex: 1,
+                    padding: '8px', 
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                  placeholder="#4CAF50"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                onClick={saveEditedLayer}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  backgroundColor: '#4A5D23',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Сохранить
+              </button>
+              <button 
+                onClick={() => {
+                  setShowEditLayerModal(false)
+                  setEditingLayer(null)
+                  setNewLayerData({ name: '', color: '#4CAF50' })
+                }}
                 style={{
                   flex: 1,
                   padding: '10px',
