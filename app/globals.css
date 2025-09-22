@@ -1,0 +1,26 @@
+@import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Стили для карты */
+.leaflet-container {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Фикс для иконок маркеров */
+.leaflet-default-icon-path {
+  background-image: url('https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png');
+}
