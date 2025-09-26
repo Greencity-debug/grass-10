@@ -52,7 +52,6 @@ const MapWithDrawing = ({ onBack }) => {
     setFeatureData
   } = useFeatureEditor(layers);
 
-  // --- Handlers for events from useMapDrawing hook ---
   const handleShapeCreated = useCallback((layer, shape) => {
     openNewFeatureModal(layer, shape);
   }, [openNewFeatureModal]);
@@ -74,11 +73,8 @@ const MapWithDrawing = ({ onBack }) => {
 
   const handleDrawStart = useCallback((shape) => {
     let hint = 'Кликните на карту, чтобы добавить точки.';
-    if (shape === 'Polyline') {
-      hint = 'Двойной клик для завершения линии.';
-    } else if (shape === 'Polygon') {
-      hint = 'Кликните на первую точку, чтобы завершить полигон.';
-    }
+    if (shape === 'Polyline') hint = 'Двойной клик для завершения линии.';
+    else if (shape === 'Polygon') hint = 'Кликните на первую точку, чтобы завершить полигон.';
     setHintText(hint);
   }, []);
 
@@ -134,21 +130,39 @@ const MapWithDrawing = ({ onBack }) => {
 
       if (layer) {
         layer.featureId = feature.id;
+        layer.featureLayerId = feature.layer_id; // Store layer_id for visibility checks
         layer.bindPopup(`<strong>${feature.name}</strong><br>${feature.description || ''}`);
         layer.on('dblclick', () => openEditFeatureModal(feature.id));
 
         featureLayersRef.current.set(feature.id, layer);
 
+        // Initial visibility check
         if (layerVisibility[feature.layer_id] !== false) {
           layer.addTo(map);
         }
       }
     });
-  }, [map, layerVisibility, openEditFeatureModal]);
+  }, [map, openEditFeatureModal]); // Removed layerVisibility from dependencies
 
+  // Effect to load features once when the map is ready
   useEffect(() => {
     loadFeatures();
   }, [loadFeatures]);
+
+  // *** NEW: Effect to handle ONLY visibility changes ***
+  useEffect(() => {
+    if (!map) return;
+    featureLayersRef.current.forEach((layer, featureId) => {
+        // featureLayerId was added during layer creation in loadFeatures
+        const isVisible = layerVisibility[layer.featureLayerId];
+        if (isVisible && !map.hasLayer(layer)) {
+            map.addLayer(layer);
+        } else if (!isVisible && map.hasLayer(layer)) {
+            map.removeLayer(layer);
+        }
+    });
+  }, [layerVisibility, map]);
+
 
   const handleSaveFeature = async () => {
     const success = await saveFeature();
