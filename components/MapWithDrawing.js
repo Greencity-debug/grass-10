@@ -12,6 +12,16 @@ import { usePolygons } from '@/hooks/usePolygons';
 const MapWithDrawing = ({ onBack }) => {
   const mapRef = useRef(null);
 
+  // This function is passed to the map hook and called when drawing is finished
+  const handleFinishDrawing = (finalPoints) => {
+    if (layers.length === 0) {
+      alert('Для сохранения полигона необходимо создать хотя бы один слой.');
+      cancelDrawing();
+      return;
+    }
+    openSavePolygonModal(finalPoints);
+  };
+
   // 1. Initialize map hook
   const {
     map,
@@ -65,22 +75,13 @@ const MapWithDrawing = ({ onBack }) => {
     }
   }, [map, loadPolygons]);
 
-  // This function is passed to the map hook and called when drawing is finished
-  function handleFinishDrawing(finalPoints) {
-    if (layers.length === 0) {
-      alert('Для сохранения полигона необходимо создать хотя бы один слой.');
-      cancelDrawing();
-      return;
-    }
-    openSavePolygonModal(finalPoints);
-  }
-
   // This function is passed to the polygon modal
   const handleSavePolygon = async () => {
-    // We pass the current drawing points to the save function
-    await savePolygon(drawingPoints);
-    // After saving, clear the temporary polygon from the map
-    clearDrawing();
+    const success = await savePolygon(drawingPoints);
+    // If saving was successful, clear the temporary polygon from the map
+    if (success) {
+      clearDrawing();
+    }
   };
 
   const handleBackClick = () => {
