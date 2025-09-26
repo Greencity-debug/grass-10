@@ -1,43 +1,63 @@
 'use client'
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import MapCanvas from '@/components/MapCanvas';
-import SavePolygonModal from '@/components/SavePolygonModal';
 import LayerModal from '@/components/LayerModal';
+import FeatureModal from '@/components/FeatureModal';
 import { useMapDrawing } from '@/hooks/useMapDrawing';
 import { useLayers } from '@/hooks/useLayers';
-import { usePolygons } from '@/hooks/usePolygons';
+import { useFeatureEditor } from '@/hooks/useFeatureEditor';
+import { supabase } from '@/lib/supabase';
+import { getTreeShrubColor, getLawnColor } from '@/lib/colorUtils';
+import L from 'leaflet';
 
 const MapWithDrawing = ({ onBack }) => {
   const mapRef = useRef(null);
+  const featureLayersRef = useRef(new Map()); // Use a Map to store layers by feature ID
 
-  // This function is passed to the map hook and called when drawing is finished
-  const handleFinishDrawing = (finalPoints) => {
-    if (layers.length === 0) {
-      alert('Для сохранения полигона необходимо создать хотя бы один слой.');
-      cancelDrawing();
-      return;
+  const {
+    isModalOpen,
+    isEditing,
+    featureData,
+    shapeType,
+    sorts,
+    openNewFeatureModal,
+    openEditFeatureModal,
+    closeFeatureModal,
+    saveFeature,
+    deleteFeature,
+    updateFeatureGeometry,
+    setFeatureData
+  } = useFeatureEditor();
+
+  const handleShapeCreated = useCallback((layer, shape) => {
+    openNewFeatureModal(layer, shape);
+  }, [openNewFeatureModal]);
+
+  const handleShapeEdited = useCallback((layer, newGeometry) => {
+    if (layer.featureId) {
+      updateFeatureGeometry(layer.featureId, newGeometry);
     }
-    openSavePolygonModal(finalPoints);
-  };
+  }, [updateFeatureGeometry]);
 
-  // 1. Initialize map hook
+  const handleShapeRemoved = useCallback(async (layer) => {
+    if (layer.featureId) {
+      const success = await deleteFeature(layer.featureId);
+      if (success) {
+        featureLayersRef.current.delete(layer.featureId);
+      }
+    }
+  }, [deleteFeature]);
+
   const {
     map,
     mapMode,
     switchMapMode,
-    isDrawing,
-    drawingPoints,
-    startDrawing,
-    cancelDrawing,
-    clearDrawing
-  } = useMapDrawing(mapRef, handleFinishDrawing);
+  } = useMapDrawing(mapRef, { onShapeCreated, onShapeEdited, onShapeRemoved });
 
-  // 2. Initialize layers hook
   const {
     layers,
-    loadLayers,
     layerVisibility,
     showCreateLayerModal,
     showEditLayerModal,
@@ -56,58 +76,75 @@ const MapWithDrawing = ({ onBack }) => {
     toggleLayerVisibility,
   } = useLayers();
 
-  // 3. Initialize polygons hook, passing it dependencies from other hooks
-  const {
-    loadPolygons,
-    showSavePolygonModal,
-    openSavePolygonModal,
-    closeSavePolygonModal,
-    polygonData,
-    setPolygonData,
-    savePolygon,
-  } = usePolygons(map, layerVisibility);
+  const loadFeatures = useCallback(async () => {
+    if (!map) return;
 
-  // 4. Handle side effects and data flow between hooks
+    // Clear existing layers from map and ref
+    featureLayersRef.current.forEach(layer => layer.remove());
+    featureLayersRef.current.clear();
+
+    const { data, error } = await supabase.from('features').select('*, layers(color)');
+
+    if (error) {
+      console.error("Ошибка загрузки объектов:", error);
+      return;
+    }
+
+    data.forEach(feature => {
+      let layer;
+      let color;
+      const geometry = feature.geometry;
+
+      switch (feature.type) {
+        case 'tree': case 'shrub': color = getTreeShrubColor(feature.created_at); break;
+        case 'lawn': color = getLawnColor(feature.created_at); break;
+        default: color = feature.layers?.color || '#3388ff';
+      }
+
+      if (geometry.type === 'Point') {
+        layer = L.marker([geometry.coordinates[1], geometry.coordinates[0]], {
+          icon: L.divIcon({ className: 'custom-div-icon', html: `<div style='background-color:${color};' class='marker-pin'></div>` })
+        });
+      } else if (geometry.type === 'LineString') {
+        layer = L.polyline(geometry.coordinates.map(c => [c[1], c[0]]), { color, weight: 4 });
+      } else if (geometry.type === 'Polygon') {
+        layer = L.polygon(geometry.coordinates[0].map(c => [c[1], c[0]]), { color, weight: 2 });
+      }
+
+      if (layer) {
+        layer.featureId = feature.id; // Crucial for identifying the layer
+        layer.bindPopup(`<strong>${feature.name}</strong><br>${feature.description || ''}`);
+        layer.on('click', () => openEditFeatureModal(feature.id)); // Open edit modal on click
+
+        featureLayersRef.current.set(feature.id, layer);
+
+        if (layerVisibility[feature.layer_id] !== false) {
+          layer.addTo(map);
+        }
+      }
+    });
+  }, [map, layerVisibility, openEditFeatureModal]);
+
   useEffect(() => {
-    // When the map is ready, load the polygons
-    if (map) {
-      loadPolygons();
-    }
-  }, [map, loadPolygons]);
+    loadFeatures();
+  }, [loadFeatures]);
 
-  // This function is passed to the polygon modal
-  const handleSavePolygon = async () => {
-    const success = await savePolygon(drawingPoints);
-    // If saving was successful, clear the temporary polygon from the map
-    if (success) {
-      clearDrawing();
-    }
+  const handleSaveFeature = async () => {
+    const success = await saveFeature();
+    if (success) loadFeatures();
   };
 
-  const handleBackClick = () => {
-    if (onBack && typeof onBack === 'function') {
-      onBack();
-    } else {
-      window.history.back();
-    }
-  };
+  const handleBackClick = () => onBack && typeof onBack === 'function' ? onBack() : window.history.back();
 
-  // Wrapper for deleteLayer to also refresh polygons
   const handleDeleteLayer = async (layer) => {
       await deleteLayer(layer);
-      // After deleting a layer, we must reload polygons to remove associated ones
-      await loadPolygons();
+      await loadFeatures();
   }
 
   return (
     <div style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
       <Sidebar
         onBack={handleBackClick}
-        isDrawing={isDrawing}
-        onCancelDrawing={cancelDrawing}
-        onStartDrawing={startDrawing}
-        onFinishDrawing={() => handleFinishDrawing(drawingPoints)}
-        drawingPointsCount={drawingPoints.length}
         onCreateLayer={openCreateLayerModal}
         layers={layers}
         onDragStart={handleDragStart}
@@ -123,13 +160,16 @@ const MapWithDrawing = ({ onBack }) => {
         mapMode={mapMode}
         onSwitchMapMode={switchMapMode}
       />
-      <SavePolygonModal
-        isOpen={showSavePolygonModal}
-        onClose={closeSavePolygonModal}
-        polygonData={polygonData}
-        onPolygonDataChange={setPolygonData}
+      <FeatureModal
+        isOpen={isModalOpen}
+        isEditing={isEditing}
+        onClose={closeFeatureModal}
+        onSave={handleSaveFeature}
+        featureData={featureData}
+        setFeatureData={setFeatureData}
+        shapeType={shapeType}
         layers={layers}
-        onSave={handleSavePolygon}
+        sorts={sorts}
       />
       <LayerModal
         isOpen={showCreateLayerModal}
