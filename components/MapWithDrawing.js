@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import MapCanvas from '@/components/MapCanvas';
 import LayerModal from '@/components/LayerModal';
