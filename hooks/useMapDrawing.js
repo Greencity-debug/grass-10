@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import L from 'leaflet';
-import '@geoman-io/leaflet-geoman-free'; // CORRECTED IMPORT
+import '@geoman-io/leaflet-geoman-free';
 
 // Fix for default Leaflet icon issue with webpack
 delete L.Icon.Default.prototype._getIconUrl;
@@ -10,8 +10,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
-// This hook now manages the map instance and the Geoman drawing/editing toolbar
-export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRemoved }) => {
+export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRemoved, onDrawStart, onDrawEnd }) => {
   const [map, setMap] = useState(null);
   const [mapMode, setMapMode] = useState('scheme');
   const [currentTileLayer, setCurrentTileLayer] = useState(null);
@@ -44,6 +43,7 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
   useEffect(() => {
     if (map) {
         map.pm.setLang('ru');
+        map.pm.setGlobalOptions({ snappable: false });
         map.pm.addControls({
             position: 'topleft',
             drawMarker: true,
@@ -53,29 +53,38 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
             drawCircle: false,
             drawCircleMarker: false,
             drawText: false,
-            editMode: false, // Disable global edit mode by default
+            editMode: true,
             dragMode: false,
             cutPolygon: false,
             removalMode: true,
         });
 
         // Event listeners for Geoman actions
-        const handleCreate = (e) => onShapeCreated && onShapeCreated(e.layer, e.shape);
+        const handleCreate = (e) => {
+            if (onShapeCreated) onShapeCreated(e.layer, e.shape);
+            if (onDrawEnd) onDrawEnd(); // Drawing ends on creation
+        };
         const handleEdit = (e) => onShapeEdited && onShapeEdited(e.layer, e.layer.toGeoJSON().geometry);
         const handleRemove = (e) => onShapeRemoved && onShapeRemoved(e.layer);
+        const handleDrawStart = (e) => onDrawStart && onDrawStart(e.shape);
+        const handleDrawEnd = () => onDrawEnd && onDrawEnd();
 
         map.on('pm:create', handleCreate);
         map.on('pm:edit', handleEdit);
         map.on('pm:remove', handleRemove);
+        map.on('pm:drawstart', handleDrawStart);
+        map.on('pm:drawend', handleDrawEnd); // When drawing is cancelled
 
         return () => {
             map.pm.removeControls();
             map.off('pm:create', handleCreate);
             map.off('pm:edit', handleEdit);
             map.off('pm:remove', handleRemove);
+            map.off('pm:drawstart', handleDrawStart);
+            map.off('pm:drawend', handleDrawEnd);
         };
     }
-  }, [map, onShapeCreated, onShapeEdited, onShapeRemoved]);
+  }, [map, onShapeCreated, onShapeEdited, onShapeRemoved, onDrawStart, onDrawEnd]);
 
 
   const switchMapMode = (mode) => {

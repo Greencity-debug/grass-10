@@ -1,9 +1,11 @@
 import React from 'react';
 import styles from './MapCanvas.module.css';
+import DrawingHint from './DrawingHint'; // Import the new component
 
-const MapCanvas = ({ mapRef, mapMode, onSwitchMapMode }) => {
+const MapCanvas = ({ mapRef, mapMode, onSwitchMapMode, hintText }) => {
   return (
     <div className={styles.mapContainer}>
+      <DrawingHint text={hintText} />
       <div className={styles.modeSwitcher}>
         <button
           onClick={() => onSwitchMapMode('scheme')}

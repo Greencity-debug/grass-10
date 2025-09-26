@@ -1,12 +1,9 @@
 import React from 'react';
 import styles from './Sidebar.module.css';
-import Toolbar from './Toolbar';
 import LayerItem from './LayerItem';
 
 const Sidebar = ({
   onBack,
-  isEditMode,
-  onToggleEditMode,
   onCreateLayer,
   layers,
   onDragStart,
@@ -35,12 +32,7 @@ const Sidebar = ({
         <div className={styles.divider}></div>
       </div>
 
-      {/* Tools */}
-      <Toolbar
-        isEditMode={isEditMode}
-        onToggleEditMode={onToggleEditMode}
-      />
-
+      {/* The Toolbar section is now removed */}
       <div className={styles.sectionDivider}></div>
 
       {/* Layers */}
