@@ -45,7 +45,7 @@ const FeatureModal = ({
 
 
   const ageOptions = Array.from({ length: 51 }, (_, i) => i);
-  const typeName = shapeType.charAt(0).toUpperCase() + shapeType.slice(1);
+  const typeName = shapeType ? shapeType.charAt(0).toUpperCase() + shapeType.slice(1) : '';
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -82,7 +82,7 @@ const FeatureModal = ({
           {/* Line (Shrub) */}
           {shapeType === 'shrub' && (
             <>
-              <div className={styles.formGroup}><label className={styles.label}>Длина</label><input type="text" value={featureData.length} readOnly className={styles.input}/></div>
+              <div className={styles.formGroup}><label className={styles.label}>Длина</label><input type="text" value={featureData.length ? `${Math.round(featureData.length)} м` : ''} readOnly className={styles.input}/></div>
               <div className={styles.formGroup}><label className={styles.label}>Сорт</label><select name="sort_id" value={featureData.sort_id || ''} onChange={handleSelectChange} className={styles.select}><option value="">Не выбрано</option>{sorts.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}</select></div>
               <div className={styles.formGroup}><label className={styles.label}>Возраст</label><select name="age" value={featureData.age} onChange={handleSelectChange} className={styles.select}>{ageOptions.map(a => (<option key={a} value={a}>{a}</option>))}</select></div>
             </>
@@ -91,7 +91,7 @@ const FeatureModal = ({
           {/* Polygon (Lawn or Flowerbed) */}
           {(shapeType === 'lawn' || shapeType === 'flowerbed' || shapeType === 'polygon') && (
             <>
-              <div className={styles.formGroup}><label className={styles.label}>Площадь</label><input type="text" value={featureData.area} readOnly className={styles.input}/></div>
+              <div className={styles.formGroup}><label className={styles.label}>Площадь</label><input type="text" value={featureData.area ? `${Math.round(featureData.area)} м²` : ''} readOnly className={styles.input}/></div>
               {shapeType === 'lawn' && (
                 <div className={styles.formGroup}><label className={styles.label}>Сорт</label><select name="sort_id" value={featureData.sort_id || ''} onChange={handleSelectChange} className={styles.select}><option value="">Не выбрано</option>{sorts.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}</select></div>
               )}

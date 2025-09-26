@@ -52,17 +52,20 @@ const MapWithDrawing = ({ onBack }) => {
     setFeatureData
   } = useFeatureEditor(layers);
 
-  // --- Handlers for events from useMapDrawing hook ---
+  // --- Handlers for events from hooks ---
   const handleShapeCreated = useCallback((layer, shape) => {
     openNewFeatureModal(layer, shape);
   }, [openNewFeatureModal]);
 
-  const handleShapeEdited = useCallback((layer, newGeometry) => {
-    // Pass all necessary info to the update function
+  const handleShapeEdited = useCallback(async (layer, newGeometry) => {
     if (layer.featureId && layer.featureType) {
-      updateFeatureGeometry(layer.featureId, layer.featureType, newGeometry);
+      const success = await updateFeatureGeometry(layer.featureId, layer.featureType, newGeometry);
+      if (success) {
+        // Reload features to display updated data like area/length in popups
+        await loadFeatures();
+      }
     }
-  }, [updateFeatureGeometry]);
+  }, [updateFeatureGeometry, loadFeatures]);
 
   const handleShapeRemoved = useCallback(async (layer) => {
     if (layer.featureId) {
@@ -153,7 +156,7 @@ const MapWithDrawing = ({ onBack }) => {
       if (layer) {
         layer.featureId = feature.id;
         layer.featureLayerId = feature.layer_id;
-        layer.featureType = feature.type; // Store feature type on the layer
+        layer.featureType = feature.type;
         layer.bindPopup(createPopupContent(feature));
         layer.on('dblclick', () => openEditFeatureModal(feature.id));
 
@@ -181,7 +184,6 @@ const MapWithDrawing = ({ onBack }) => {
         }
     });
   }, [layerVisibility, map]);
-
 
   const handleSaveFeature = async () => {
     const success = await saveFeature();

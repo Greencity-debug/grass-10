@@ -44,9 +44,11 @@ export const useFeatureEditor = (layers) => {
             created_at: new Date().toISOString().split('T')[0],
             geometry: geometry,
             flowerVarieties: [{ sort_id: null, quantity: 1 }],
+            // Store raw numbers in state
+            length: calculatedLength,
+            area: calculatedArea,
+            // Display-only fields (not part of the core data object)
             coordinates: type === 'Marker' ? `${geometry.coordinates[1].toFixed(6)}, ${geometry.coordinates[0].toFixed(6)}` : null,
-            length: calculatedLength ? `${Math.round(calculatedLength)} м` : null,
-            area: calculatedArea ? `${Math.round(calculatedArea)} м²` : null,
         });
         setIsModalOpen(true);
     }, []);
@@ -67,8 +69,6 @@ export const useFeatureEditor = (layers) => {
             ...data,
             flowerVarieties: data.feature_varieties.length > 0 ? data.feature_varieties : [{ sort_id: null, quantity: 1 }],
             coordinates: geometry.type === 'Point' ? `${geometry.coordinates[1].toFixed(6)}, ${geometry.coordinates[0].toFixed(6)}` : null,
-            length: data.length ? `${Math.round(data.length)} м` : null,
-            area: data.area ? `${Math.round(data.area)} м²` : null,
         });
         setIsModalOpen(true);
     }, []);
@@ -106,12 +106,6 @@ export const useFeatureEditor = (layers) => {
         }
         const finalName = featureData.name.trim() || `${shapeType} auto-gen`;
 
-        // Recalculate length/area on save to ensure data integrity
-        let calculatedLength = null;
-        let calculatedArea = null;
-        if (shapeType === 'shrub') calculatedLength = length(featureData.geometry, { units: 'meters' });
-        else if (['lawn', 'flowerbed', 'polygon'].includes(shapeType)) calculatedArea = area(featureData.geometry);
-
         const dataToSave = {
             id: isEditing ? featureData.id : undefined,
             name: finalName,
@@ -122,8 +116,8 @@ export const useFeatureEditor = (layers) => {
             age: (shapeType === 'tree' || shapeType === 'shrub') ? featureData.age : null,
             sort_id: (shapeType !== 'flowerbed') ? featureData.sort_id : null,
             created_at: featureData.created_at,
-            length: calculatedLength,
-            area: calculatedArea,
+            length: featureData.length ? Math.round(featureData.length) : null,
+            area: featureData.area ? Math.round(featureData.area) : null,
         };
         const { data: savedFeature, error } = await supabase.from('features').upsert(dataToSave).select().single();
         if (error) {
@@ -159,12 +153,16 @@ export const useFeatureEditor = (layers) => {
     const updateFeatureGeometry = async (featureId, featureType, newGeometry) => {
         const updateData = { geometry: newGeometry };
         if (featureType === 'shrub') {
-            updateData.length = length(newGeometry, { units: 'meters' });
+            updateData.length = Math.round(length(newGeometry, { units: 'meters' }));
         } else if (['lawn', 'flowerbed', 'polygon'].includes(featureType)) {
-            updateData.area = area(newGeometry);
+            updateData.area = Math.round(area(newGeometry));
         }
         const { error } = await supabase.from('features').update(updateData).eq('id', featureId);
-        if (error) alert(`Не удалось обновить геометрию: ${error.message}`);
+        if (error) {
+            alert(`Не удалось обновить геометрию: ${error.message}`);
+            return false;
+        }
+        return true;
     };
 
     return {
