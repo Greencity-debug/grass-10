@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import L from 'leaflet';
-import 'leaflet-geoman-free';
+import '@geoman-io/leaflet-geoman-free'; // CORRECTED IMPORT
 
 // Fix for default Leaflet icon issue with webpack
 delete L.Icon.Default.prototype._getIconUrl;
