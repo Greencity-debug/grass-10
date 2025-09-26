@@ -52,6 +52,58 @@ const MapWithDrawing = ({ onBack }) => {
     setFeatureData
   } = useFeatureEditor(layers);
 
+  // --- Main Data Loading Function ---
+  // Must be defined before any functions that use it (e.g., handleShapeEdited)
+  const loadFeatures = useCallback(async () => {
+    if (!map) return;
+
+    featureLayersRef.current.forEach(layer => layer.remove());
+    featureLayersRef.current.clear();
+
+    const { data, error } = await supabase.from('features').select('*, layers(name, color)');
+
+    if (error) {
+      console.error("Ошибка загрузки объектов:", error);
+      return;
+    }
+
+    data.forEach(feature => {
+      let layer;
+      let color;
+      const geometry = feature.geometry;
+
+      switch (feature.type) {
+        case 'tree': case 'shrub': color = getTreeShrubColor(feature.created_at); break;
+        case 'lawn': color = getLawnColor(feature.created_at); break;
+        default: color = feature.layers?.color || '#3388ff';
+      }
+
+      if (geometry.type === 'Point') {
+        layer = L.marker([geometry.coordinates[1], geometry.coordinates[0]], {
+          icon: L.divIcon({ className: 'custom-div-icon', html: `<div style='background-color:${color};' class='marker-pin'></div>` })
+        });
+      } else if (geometry.type === 'LineString') {
+        layer = L.polyline(geometry.coordinates.map(c => [c[1], c[0]]), { color, weight: 4 });
+      } else if (geometry.type === 'Polygon') {
+        layer = L.polygon(geometry.coordinates[0].map(c => [c[1], c[0]]), { color, weight: 2 });
+      }
+
+      if (layer) {
+        layer.featureId = feature.id;
+        layer.featureLayerId = feature.layer_id;
+        layer.featureType = feature.type;
+        layer.bindPopup(createPopupContent(feature));
+        layer.on('dblclick', () => openEditFeatureModal(feature.id));
+
+        featureLayersRef.current.set(feature.id, layer);
+
+        if (layerVisibility[feature.layer_id] !== false) {
+          layer.addTo(map);
+        }
+      }
+    });
+  }, [map, openEditFeatureModal]);
+
   // --- Handlers for events from hooks ---
   const handleShapeCreated = useCallback((layer, shape) => {
     openNewFeatureModal(layer, shape);
@@ -61,7 +113,6 @@ const MapWithDrawing = ({ onBack }) => {
     if (layer.featureId && layer.featureType) {
       const success = await updateFeatureGeometry(layer.featureId, layer.featureType, newGeometry);
       if (success) {
-        // Reload features to display updated data like area/length in popups
         await loadFeatures();
       }
     }
@@ -119,59 +170,11 @@ const MapWithDrawing = ({ onBack }) => {
     return content;
   };
 
-  const loadFeatures = useCallback(async () => {
-    if (!map) return;
-
-    featureLayersRef.current.forEach(layer => layer.remove());
-    featureLayersRef.current.clear();
-
-    const { data, error } = await supabase.from('features').select('*, layers(name, color)');
-
-    if (error) {
-      console.error("Ошибка загрузки объектов:", error);
-      return;
-    }
-
-    data.forEach(feature => {
-      let layer;
-      let color;
-      const geometry = feature.geometry;
-
-      switch (feature.type) {
-        case 'tree': case 'shrub': color = getTreeShrubColor(feature.created_at); break;
-        case 'lawn': color = getLawnColor(feature.created_at); break;
-        default: color = feature.layers?.color || '#3388ff';
-      }
-
-      if (geometry.type === 'Point') {
-        layer = L.marker([geometry.coordinates[1], geometry.coordinates[0]], {
-          icon: L.divIcon({ className: 'custom-div-icon', html: `<div style='background-color:${color};' class='marker-pin'></div>` })
-        });
-      } else if (geometry.type === 'LineString') {
-        layer = L.polyline(geometry.coordinates.map(c => [c[1], c[0]]), { color, weight: 4 });
-      } else if (geometry.type === 'Polygon') {
-        layer = L.polygon(geometry.coordinates[0].map(c => [c[1], c[0]]), { color, weight: 2 });
-      }
-
-      if (layer) {
-        layer.featureId = feature.id;
-        layer.featureLayerId = feature.layer_id;
-        layer.featureType = feature.type;
-        layer.bindPopup(createPopupContent(feature));
-        layer.on('dblclick', () => openEditFeatureModal(feature.id));
-
-        featureLayersRef.current.set(feature.id, layer);
-
-        if (layerVisibility[feature.layer_id] !== false) {
-          layer.addTo(map);
-        }
-      }
-    });
-  }, [map, openEditFeatureModal]);
-
   useEffect(() => {
-    loadFeatures();
-  }, [loadFeatures]);
+    if (map) {
+      loadFeatures();
+    }
+  }, [map, loadFeatures]);
 
   useEffect(() => {
     if (!map) return;
