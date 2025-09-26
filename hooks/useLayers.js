@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // IMPORTANT: This hook assumes the 'layers' table in Supabase has a 'position' column (integer).
-// This column is used to maintain the order of layers.
 
 export const useLayers = () => {
   const [layers, setLayers] = useState([]);
@@ -18,15 +17,19 @@ export const useLayers = () => {
       const { data, error } = await supabase
         .from('layers')
         .select('*')
-        .order('position', { ascending: true, nullsFirst: false }); // Sort by position
+        .order('position', { ascending: true, nullsFirst: false });
 
       if (error) {
         console.error('🚨 Ошибка загрузки слоёв:', error);
-        alert('Не удалось загрузить слои. Проверьте подключение и настройки RLS в Supabase.');
+        alert(`Не удалось загрузить слои. Проверьте RLS-политики. Ошибка: ${error.message}`);
         return;
       }
 
       if (data) {
+        // Diagnostic alert
+        if (data.length === 0) {
+          alert("Диагностика: Запрос к базе данных прошел успешно, но таблица 'layers' пуста. Пожалуйста, добавьте хотя бы один слой в Supabase, чтобы он отобразился на карте.");
+        }
         setLayers(data);
         const visibility = {};
         data.forEach(layer => {
