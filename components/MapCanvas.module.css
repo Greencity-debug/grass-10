@@ -1,0 +1,46 @@
+.mapContainer {
+  flex: 1;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.modeSwitcher {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  z-index: 1000;
+  display: flex;
+  background-color: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  overflow: hidden;
+}
+
+.modeButton {
+  padding: 8px 12px;
+  border: none;
+  background-color: white;
+  color: #333;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 1px solid #e0e0e0;
+}
+
+.modeButton:first-child {
+    border-left: none;
+}
+
+.modeButton.active {
+  background-color: #4A5D23;
+  color: white;
+}
