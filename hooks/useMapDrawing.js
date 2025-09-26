@@ -53,8 +53,8 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
             drawCircle: false,
             drawCircleMarker: false,
             drawText: false,
-            editMode: true,
-            dragMode: false, // Dragging features is handled by pm:edit
+            editMode: false, // Disable global edit mode by default
+            dragMode: false,
             cutPolygon: false,
             removalMode: true,
         });

@@ -118,7 +118,21 @@ const MapWithDrawing = ({ onBack }) => {
       if (layer) {
         layer.featureId = feature.id; // Crucial for identifying the layer
         layer.bindPopup(`<strong>${feature.name}</strong><br>${feature.description || ''}`);
-        layer.on('click', () => openEditFeatureModal(feature.id)); // Open edit modal on click
+
+        // Handle click: enable editing if in edit mode
+        layer.on('click', () => {
+            if (isEditMode) {
+                // Deselect all other layers
+                featureLayersRef.current.forEach(l => l.pm.disable());
+                // Enable editing for this layer
+                layer.pm.enable({
+                    allowSelfIntersection: false,
+                });
+            }
+        });
+
+        // Handle double-click: open modal
+        layer.on('dblclick', () => openEditFeatureModal(feature.id));
 
         featureLayersRef.current.set(feature.id, layer);
 
@@ -140,6 +154,16 @@ const MapWithDrawing = ({ onBack }) => {
 
   const handleBackClick = () => onBack && typeof onBack === 'function' ? onBack() : window.history.back();
 
+  const [isEditMode, setIsEditMode] = useState(false);
+
+  const toggleEditMode = () => {
+    // When turning off edit mode, disable any active editing on the map
+    if (isEditMode && map) {
+      map.pm.disableGlobalEditMode();
+    }
+    setIsEditMode(prev => !prev);
+  };
+
   const handleDeleteLayer = async (layer) => {
       await deleteLayer(layer);
       await loadFeatures();
@@ -149,6 +173,8 @@ const MapWithDrawing = ({ onBack }) => {
     <div style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
       <Sidebar
         onBack={handleBackClick}
+        isEditMode={isEditMode}
+        onToggleEditMode={toggleEditMode}
         onCreateLayer={openCreateLayerModal}
         layers={layers}
         onDragStart={handleDragStart}

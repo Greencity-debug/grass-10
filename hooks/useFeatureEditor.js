@@ -48,7 +48,7 @@ export const useFeatureEditor = (layers) => {
             flowerVarieties: [{ sort_id: null, quantity: 1 }],
             coordinates: type === 'Marker' ? `${geometry.coordinates[1].toFixed(6)}, ${geometry.coordinates[0].toFixed(6)}` : null,
             length: calculatedLength ? `${calculatedLength.toFixed(2)} м` : null,
-            area: calculatedArea ? `${(calculatedArea / 10000).toFixed(4)} га` : null,
+            area: calculatedArea ? `${calculatedArea.toFixed(2)} м²` : null,
         });
         setIsModalOpen(true);
     }, []);
@@ -76,7 +76,7 @@ export const useFeatureEditor = (layers) => {
             flowerVarieties: data.feature_varieties.length > 0 ? data.feature_varieties : [{ sort_id: null, quantity: 1 }],
             coordinates: geometry.type === 'Point' ? `${geometry.coordinates[1].toFixed(6)}, ${geometry.coordinates[0].toFixed(6)}` : null,
             length: data.length ? `${data.length.toFixed(2)} м` : null,
-            area: data.area ? `${(data.area).toFixed(4)} га` : null,
+            area: data.area ? `${data.area.toFixed(2)} м²` : null,
         });
         setIsModalOpen(true);
     }, []);

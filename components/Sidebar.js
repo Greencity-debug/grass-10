@@ -5,11 +5,8 @@ import LayerItem from './LayerItem';
 
 const Sidebar = ({
   onBack,
-  isDrawing,
-  onCancelDrawing,
-  onStartDrawing,
-  onFinishDrawing,
-  drawingPointsCount,
+  isEditMode,
+  onToggleEditMode,
   onCreateLayer,
   layers,
   onDragStart,
@@ -40,11 +37,8 @@ const Sidebar = ({
 
       {/* Tools */}
       <Toolbar
-        isDrawing={isDrawing}
-        onCancelDrawing={onCancelDrawing}
-        onStartDrawing={onStartDrawing}
-        onFinishDrawing={onFinishDrawing}
-        drawingPointsCount={drawingPointsCount}
+        isEditMode={isEditMode}
+        onToggleEditMode={onToggleEditMode}
       />
 
       <div className={styles.sectionDivider}></div>
