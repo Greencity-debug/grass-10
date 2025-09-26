@@ -94,13 +94,34 @@ const MapWithDrawing = ({ onBack }) => {
       onDrawEnd: handleDrawEnd,
   });
 
+  const createPopupContent = (feature) => {
+    let content = `<strong>${feature.name}</strong>`;
+    if (feature.layers && feature.layers.name) {
+        content += `<br>Слой: ${feature.layers.name}`;
+    }
+    if (feature.type === 'tree' || feature.type === 'shrub') {
+        content += `<br>Возраст: ${feature.age || 0} лет`;
+    }
+    if (feature.type === 'shrub') {
+        content += `<br>Длина: ${feature.length ? feature.length.toFixed(2) : '0.00'} м`;
+    }
+    if (['lawn', 'flowerbed', 'polygon'].includes(feature.type)) {
+        content += `<br>Площадь: ${feature.area ? feature.area.toFixed(2) : '0.00'} м²`;
+    }
+    if (feature.description) {
+        content += `<br><small><i>${feature.description}</i></small>`;
+    }
+    return content;
+  };
+
   const loadFeatures = useCallback(async () => {
     if (!map) return;
 
     featureLayersRef.current.forEach(layer => layer.remove());
     featureLayersRef.current.clear();
 
-    const { data, error } = await supabase.from('features').select('*, layers(color)');
+    // Fetch layer name along with color
+    const { data, error } = await supabase.from('features').select('*, layers(name, color)');
 
     if (error) {
       console.error("Ошибка загрузки объектов:", error);
@@ -130,30 +151,27 @@ const MapWithDrawing = ({ onBack }) => {
 
       if (layer) {
         layer.featureId = feature.id;
-        layer.featureLayerId = feature.layer_id; // Store layer_id for visibility checks
-        layer.bindPopup(`<strong>${feature.name}</strong><br>${feature.description || ''}`);
+        layer.featureLayerId = feature.layer_id;
+        layer.bindPopup(createPopupContent(feature)); // Use the new rich content
         layer.on('dblclick', () => openEditFeatureModal(feature.id));
 
         featureLayersRef.current.set(feature.id, layer);
 
-        // Initial visibility check
         if (layerVisibility[feature.layer_id] !== false) {
           layer.addTo(map);
         }
       }
     });
-  }, [map, openEditFeatureModal]); // Removed layerVisibility from dependencies
+  }, [map, openEditFeatureModal]);
 
-  // Effect to load features once when the map is ready
   useEffect(() => {
     loadFeatures();
   }, [loadFeatures]);
 
-  // *** NEW: Effect to handle ONLY visibility changes ***
+  // This effect now correctly handles only visibility changes
   useEffect(() => {
     if (!map) return;
-    featureLayersRef.current.forEach((layer, featureId) => {
-        // featureLayerId was added during layer creation in loadFeatures
+    featureLayersRef.current.forEach((layer) => {
         const isVisible = layerVisibility[layer.featureLayerId];
         if (isVisible && !map.hasLayer(layer)) {
             map.addLayer(layer);

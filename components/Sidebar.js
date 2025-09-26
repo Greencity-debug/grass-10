@@ -32,8 +32,7 @@ const Sidebar = ({
         <div className={styles.divider}></div>
       </div>
 
-      {/* The Toolbar section is now removed */}
-      <div className={styles.sectionDivider}></div>
+      {/* The Toolbar section is now removed. The divider is also removed. */}
 
       {/* Layers */}
       <div className={styles.layersSection}>
