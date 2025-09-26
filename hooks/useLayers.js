@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// IMPORTANT: This hook assumes the 'layers' table in Supabase has a 'position' column (integer).
-
 export const useLayers = () => {
   const [layers, setLayers] = useState([]);
   const [showCreateLayerModal, setShowCreateLayerModal] = useState(false);
@@ -14,21 +12,21 @@ export const useLayers = () => {
 
   const loadLayers = useCallback(async () => {
     try {
+      // TEMPORARY FIX: Reverted sorting to 'created_at' because 'position' column does not exist in user's DB.
       const { data, error } = await supabase
         .from('layers')
         .select('*')
-        .order('position', { ascending: true, nullsFirst: false });
+        .order('created_at', { ascending: true });
 
       if (error) {
         console.error('🚨 Ошибка загрузки слоёв:', error);
-        alert(`Не удалось загрузить слои. Проверьте RLS-политики. Ошибка: ${error.message}`);
+        alert(`Не удалось загрузить слои. Ошибка: ${error.message}`);
         return;
       }
 
       if (data) {
-        // Diagnostic alert
         if (data.length === 0) {
-          alert("Диагностика: Запрос к базе данных прошел успешно, но таблица 'layers' пуста. Пожалуйста, добавьте хотя бы один слой в Supabase, чтобы он отобразился на карте.");
+          console.log("Диагностика: Запрос к 'layers' успешен, но таблица пуста.");
         }
         setLayers(data);
         const visibility = {};
@@ -70,21 +68,14 @@ export const useLayers = () => {
     const [draggedItem] = currentLayers.splice(draggedIndex, 1);
     currentLayers.splice(targetIndex, 0, draggedItem);
 
+    // Update UI optimistically
     setLayers(currentLayers);
     setDraggedLayer(null);
 
-    const layersToUpdate = currentLayers.map((layer, index) => ({
-        id: layer.id,
-        position: index,
-    }));
+    // Inform user that persistence is disabled.
+    alert("Порядок слоев изменен только визуально. Чтобы сохранять его, добавьте колонку 'position' (тип integer) в таблицу 'layers' в Supabase.");
 
-    const { error } = await supabase.from('layers').upsert(layersToUpdate);
-
-    if (error) {
-        console.error('🚨 Ошибка обновления порядка слоёв:', error);
-        alert('Не удалось сохранить новый порядок слоёв. Порядок будет сброшен.');
-        loadLayers();
-    }
+    // NOTE: The logic to save the new order to Supabase is disabled until the 'position' column is added.
   };
 
   const openCreateLayerModal = () => {
@@ -111,12 +102,11 @@ export const useLayers = () => {
       alert('Введите название слоя');
       return;
     }
-    const maxPosition = layers.reduce((max, layer) => Math.max(max, layer.position || 0), 0);
 
+    // NOTE: The 'position' field is omitted until the column is added to the database.
     const { error } = await supabase.from('layers').insert({
       name: newLayerData.name,
       color: newLayerData.color,
-      position: layers.length > 0 ? maxPosition + 1 : 0,
     });
 
     if (error) {
