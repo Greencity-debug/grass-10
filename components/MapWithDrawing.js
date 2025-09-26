@@ -54,7 +54,11 @@ const MapWithDrawing = ({ onBack }) => {
     map,
     mapMode,
     switchMapMode,
-  } = useMapDrawing(mapRef, { onShapeCreated, onShapeEdited, onShapeRemoved });
+  } = useMapDrawing(mapRef, {
+      onShapeCreated: handleShapeCreated,
+      onShapeEdited: handleShapeEdited,
+      onShapeRemoved: handleShapeRemoved
+  });
 
   const {
     layers,
