@@ -12,6 +12,7 @@ import { usePolygons } from '@/hooks/usePolygons';
 const MapWithDrawing = ({ onBack }) => {
   const mapRef = useRef(null);
 
+  // 1. Initialize map hook
   const {
     map,
     mapMode,
@@ -23,8 +24,10 @@ const MapWithDrawing = ({ onBack }) => {
     clearDrawing
   } = useMapDrawing(mapRef, handleFinishDrawing);
 
+  // 2. Initialize layers hook
   const {
     layers,
+    loadLayers,
     layerVisibility,
     showCreateLayerModal,
     showEditLayerModal,
@@ -41,9 +44,9 @@ const MapWithDrawing = ({ onBack }) => {
     saveEditedLayer,
     deleteLayer,
     toggleLayerVisibility,
-    loadLayers,
-  } = useLayers(reloadPolygonsAndLayers);
+  } = useLayers();
 
+  // 3. Initialize polygons hook, passing it dependencies from other hooks
   const {
     loadPolygons,
     showSavePolygonModal,
@@ -52,8 +55,17 @@ const MapWithDrawing = ({ onBack }) => {
     polygonData,
     setPolygonData,
     savePolygon,
-  } = usePolygons(map, layers, layerVisibility, handlePolygonSaved);
+  } = usePolygons(map, layerVisibility);
 
+  // 4. Handle side effects and data flow between hooks
+  useEffect(() => {
+    // When the map is ready, load the polygons
+    if (map) {
+      loadPolygons();
+    }
+  }, [map, loadPolygons]);
+
+  // This function is passed to the map hook and called when drawing is finished
   function handleFinishDrawing(finalPoints) {
     if (layers.length === 0) {
       alert('Для сохранения полигона необходимо создать хотя бы один слой.');
@@ -63,25 +75,12 @@ const MapWithDrawing = ({ onBack }) => {
     openSavePolygonModal(finalPoints);
   }
 
-  function handlePolygonSaved() {
+  // This function is passed to the polygon modal
+  const handleSavePolygon = async () => {
+    // We pass the current drawing points to the save function
+    await savePolygon(drawingPoints);
+    // After saving, clear the temporary polygon from the map
     clearDrawing();
-    loadPolygons();
-  }
-
-  function reloadPolygonsAndLayers() {
-      loadPolygons();
-      loadLayers();
-  }
-
-  useEffect(() => {
-    if (map) {
-      loadPolygons();
-    }
-  }, [map]);
-
-
-  const handleSavePolygon = () => {
-    savePolygon(drawingPoints);
   };
 
   const handleBackClick = () => {
@@ -91,6 +90,13 @@ const MapWithDrawing = ({ onBack }) => {
       window.history.back();
     }
   };
+
+  // Wrapper for deleteLayer to also refresh polygons
+  const handleDeleteLayer = async (layer) => {
+      await deleteLayer(layer);
+      // After deleting a layer, we must reload polygons to remove associated ones
+      await loadPolygons();
+  }
 
   return (
     <div style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
@@ -106,7 +112,7 @@ const MapWithDrawing = ({ onBack }) => {
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        onDeleteLayer={deleteLayer}
+        onDeleteLayer={handleDeleteLayer}
         onEditLayer={openEditLayerModal}
         layerVisibility={layerVisibility}
         onToggleLayerVisibility={toggleLayerVisibility}

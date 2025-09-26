@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 // IMPORTANT: This hook assumes the 'layers' table in Supabase has a 'position' column (integer).
 // This column is used to maintain the order of layers.
 
-export const useLayers = (onLayersLoaded) => {
+export const useLayers = () => {
   const [layers, setLayers] = useState([]);
   const [showCreateLayerModal, setShowCreateLayerModal] = useState(false);
   const [showEditLayerModal, setShowEditLayerModal] = useState(false);
@@ -22,6 +22,7 @@ export const useLayers = (onLayersLoaded) => {
 
       if (error) {
         console.error('🚨 Ошибка загрузки слоёв:', error);
+        alert('Не удалось загрузить слои. Проверьте подключение и настройки RLS в Supabase.');
         return;
       }
 
@@ -32,12 +33,11 @@ export const useLayers = (onLayersLoaded) => {
           visibility[layer.id] = true;
         });
         setLayerVisibility(visibility);
-        if (onLayersLoaded) onLayersLoaded(data);
       }
     } catch (err) {
       console.error('💥 Критическая ошибка:', err);
     }
-  }, [onLayersLoaded]);
+  }, []);
 
   useEffect(() => {
     loadLayers();
@@ -61,30 +61,25 @@ export const useLayers = (onLayersLoaded) => {
       return;
     }
 
-    // Create new ordered list
     const currentLayers = [...layers];
     const draggedIndex = currentLayers.findIndex(l => l.id === draggedLayer.id);
     const targetIndex = currentLayers.findIndex(l => l.id === targetLayer.id);
     const [draggedItem] = currentLayers.splice(draggedIndex, 1);
     currentLayers.splice(targetIndex, 0, draggedItem);
 
-    // Optimistically update the UI
     setLayers(currentLayers);
     setDraggedLayer(null);
 
-    // Prepare data for DB update
     const layersToUpdate = currentLayers.map((layer, index) => ({
         id: layer.id,
         position: index,
     }));
 
-    // Update positions in Supabase
     const { error } = await supabase.from('layers').upsert(layersToUpdate);
 
     if (error) {
         console.error('🚨 Ошибка обновления порядка слоёв:', error);
         alert('Не удалось сохранить новый порядок слоёв. Порядок будет сброшен.');
-        // Revert UI change on error
         loadLayers();
     }
   };
@@ -113,7 +108,6 @@ export const useLayers = (onLayersLoaded) => {
       alert('Введите название слоя');
       return;
     }
-    // Set position to be the last in the list
     const maxPosition = layers.reduce((max, layer) => Math.max(max, layer.position || 0), 0);
 
     const { error } = await supabase.from('layers').insert({
