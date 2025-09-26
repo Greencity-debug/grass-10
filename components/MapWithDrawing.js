@@ -52,13 +52,15 @@ const MapWithDrawing = ({ onBack }) => {
     setFeatureData
   } = useFeatureEditor(layers);
 
+  // --- Handlers for events from useMapDrawing hook ---
   const handleShapeCreated = useCallback((layer, shape) => {
     openNewFeatureModal(layer, shape);
   }, [openNewFeatureModal]);
 
   const handleShapeEdited = useCallback((layer, newGeometry) => {
-    if (layer.featureId) {
-      updateFeatureGeometry(layer.featureId, newGeometry);
+    // Pass all necessary info to the update function
+    if (layer.featureId && layer.featureType) {
+      updateFeatureGeometry(layer.featureId, layer.featureType, newGeometry);
     }
   }, [updateFeatureGeometry]);
 
@@ -103,10 +105,10 @@ const MapWithDrawing = ({ onBack }) => {
         content += `<br>Возраст: ${feature.age || 0} лет`;
     }
     if (feature.type === 'shrub') {
-        content += `<br>Длина: ${feature.length ? feature.length.toFixed(2) : '0.00'} м`;
+        content += `<br>Длина: ${feature.length ? Math.round(feature.length) : '0'} м`;
     }
     if (['lawn', 'flowerbed', 'polygon'].includes(feature.type)) {
-        content += `<br>Площадь: ${feature.area ? feature.area.toFixed(2) : '0.00'} м²`;
+        content += `<br>Площадь: ${feature.area ? Math.round(feature.area) : '0'} м²`;
     }
     if (feature.description) {
         content += `<br><small><i>${feature.description}</i></small>`;
@@ -120,7 +122,6 @@ const MapWithDrawing = ({ onBack }) => {
     featureLayersRef.current.forEach(layer => layer.remove());
     featureLayersRef.current.clear();
 
-    // Fetch layer name along with color
     const { data, error } = await supabase.from('features').select('*, layers(name, color)');
 
     if (error) {
@@ -152,7 +153,8 @@ const MapWithDrawing = ({ onBack }) => {
       if (layer) {
         layer.featureId = feature.id;
         layer.featureLayerId = feature.layer_id;
-        layer.bindPopup(createPopupContent(feature)); // Use the new rich content
+        layer.featureType = feature.type; // Store feature type on the layer
+        layer.bindPopup(createPopupContent(feature));
         layer.on('dblclick', () => openEditFeatureModal(feature.id));
 
         featureLayersRef.current.set(feature.id, layer);
@@ -168,7 +170,6 @@ const MapWithDrawing = ({ onBack }) => {
     loadFeatures();
   }, [loadFeatures]);
 
-  // This effect now correctly handles only visibility changes
   useEffect(() => {
     if (!map) return;
     featureLayersRef.current.forEach((layer) => {

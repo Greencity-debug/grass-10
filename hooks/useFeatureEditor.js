@@ -9,13 +9,11 @@ export const useFeatureEditor = (layers) => {
     const [shapeType, setShapeType] = useState(null);
     const [geometryType, setGeometryType] = useState(null);
     const [sorts, setSorts] = useState([]);
-    const [isEditing, setIsEditing] = useState(false); // To track if we are editing or creating
+    const [isEditing, setIsEditing] = useState(false);
 
-    // Function to open the modal for a NEW feature
     const openNewFeatureModal = useCallback((layer, type) => {
         layer.remove();
         setIsEditing(false);
-
         const geometry = layer.toGeoJSON().geometry;
         let initialShapeType = null;
         let calculatedLength = null;
@@ -47,21 +45,15 @@ export const useFeatureEditor = (layers) => {
             geometry: geometry,
             flowerVarieties: [{ sort_id: null, quantity: 1 }],
             coordinates: type === 'Marker' ? `${geometry.coordinates[1].toFixed(6)}, ${geometry.coordinates[0].toFixed(6)}` : null,
-            length: calculatedLength ? `${calculatedLength.toFixed(2)} м` : null,
-            area: calculatedArea ? `${calculatedArea.toFixed(2)} м²` : null,
+            length: calculatedLength ? `${Math.round(calculatedLength)} м` : null,
+            area: calculatedArea ? `${Math.round(calculatedArea)} м²` : null,
         });
         setIsModalOpen(true);
     }, []);
 
-    // Function to open the modal for an EXISTING feature
     const openEditFeatureModal = useCallback(async (featureId) => {
         setIsEditing(true);
-        const { data, error } = await supabase
-            .from('features')
-            .select('*, feature_varieties(*)')
-            .eq('id', featureId)
-            .single();
-
+        const { data, error } = await supabase.from('features').select('*, feature_varieties(*)').eq('id', featureId).single();
         if (error) {
             console.error("Error fetching feature to edit:", error);
             alert("Не удалось загрузить данные объекта для редактирования.");
@@ -75,12 +67,11 @@ export const useFeatureEditor = (layers) => {
             ...data,
             flowerVarieties: data.feature_varieties.length > 0 ? data.feature_varieties : [{ sort_id: null, quantity: 1 }],
             coordinates: geometry.type === 'Point' ? `${geometry.coordinates[1].toFixed(6)}, ${geometry.coordinates[0].toFixed(6)}` : null,
-            length: data.length ? `${data.length.toFixed(2)} м` : null,
-            area: data.area ? `${data.area.toFixed(2)} м²` : null,
+            length: data.length ? `${Math.round(data.length)} м` : null,
+            area: data.area ? `${Math.round(data.area)} м²` : null,
         });
         setIsModalOpen(true);
     }, []);
-
 
     useEffect(() => {
         if (geometryType === 'Polygon' && featureData?.layer_id && layers) {
@@ -106,23 +97,24 @@ export const useFeatureEditor = (layers) => {
     }, [isModalOpen, shapeType]);
 
     const closeFeatureModal = useCallback(() => {
-        setIsModalOpen(false);
-        setFeatureData(null);
-        setShapeType(null);
-        setSorts([]);
-        setGeometryType(null);
-        setIsEditing(false);
+        setIsModalOpen(false); setFeatureData(null); setShapeType(null); setSorts([]); setGeometryType(null); setIsEditing(false);
     }, []);
 
     const saveFeature = useCallback(async () => {
         if (!featureData || !featureData.layer_id) {
-            alert('Необходимо выбрать слой.');
-            return false;
+            alert('Необходимо выбрать слой.'); return false;
         }
+        const finalName = featureData.name.trim() || `${shapeType} auto-gen`;
+
+        // Recalculate length/area on save to ensure data integrity
+        let calculatedLength = null;
+        let calculatedArea = null;
+        if (shapeType === 'shrub') calculatedLength = length(featureData.geometry, { units: 'meters' });
+        else if (['lawn', 'flowerbed', 'polygon'].includes(shapeType)) calculatedArea = area(featureData.geometry);
 
         const dataToSave = {
             id: isEditing ? featureData.id : undefined,
-            name: featureData.name.trim() || `${shapeType} auto-gen`,
+            name: finalName,
             description: featureData.description,
             layer_id: featureData.layer_id,
             geometry: featureData.geometry,
@@ -130,20 +122,15 @@ export const useFeatureEditor = (layers) => {
             age: (shapeType === 'tree' || shapeType === 'shrub') ? featureData.age : null,
             sort_id: (shapeType !== 'flowerbed') ? featureData.sort_id : null,
             created_at: featureData.created_at,
-            length: featureData.length ? parseFloat(featureData.length) : null,
-            area: featureData.area ? parseFloat(featureData.area) : null,
+            length: calculatedLength,
+            area: calculatedArea,
         };
-
         const { data: savedFeature, error } = await supabase.from('features').upsert(dataToSave).select().single();
-
         if (error) {
-            console.error('Ошибка сохранения объекта:', error);
-            alert(`Не удалось сохранить объект: ${error.message}`);
-            return false;
+            console.error('Ошибка сохранения объекта:', error); alert(`Не удалось сохранить объект: ${error.message}`); return false;
         }
 
         if (shapeType === 'flowerbed') {
-            // Delete old varieties first
             await supabase.from('feature_varieties').delete().eq('feature_id', savedFeature.id);
             const varietiesToSave = featureData.flowerVarieties.filter(v => v.sort_id && v.quantity > 0).map(v => ({ feature_id: savedFeature.id, sort_id: v.sort_id, quantity: v.quantity }));
             if (varietiesToSave.length > 0) {
@@ -152,49 +139,37 @@ export const useFeatureEditor = (layers) => {
             }
         }
 
-        if (dataToSave.name.includes('auto-gen')) {
-            const updatedName = dataToSave.name.replace('auto-gen', `№${savedFeature.id.substring(0, 4)}`);
+        if (finalName.includes('auto-gen')) {
+            const updatedName = finalName.replace('auto-gen', `№${savedFeature.id.substring(0, 4)}`);
             await supabase.from('features').update({ name: updatedName }).eq('id', savedFeature.id);
         }
-
         alert('Объект успешно сохранен!');
         closeFeatureModal();
         return true;
-
     }, [featureData, shapeType, closeFeatureModal, isEditing]);
 
     const deleteFeature = async (featureId) => {
         if (!confirm("Вы уверены, что хотите удалить этот объект?")) return false;
-
         const { error } = await supabase.from('features').delete().eq('id', featureId);
-
-        if (error) {
-            alert(`Ошибка удаления: ${error.message}`);
-            return false;
-        }
+        if (error) { alert(`Ошибка удаления: ${error.message}`); return false; }
         alert("Объект удален.");
         return true;
     };
 
-    const updateFeatureGeometry = async (featureId, newGeometry) => {
-        const { error } = await supabase.from('features').update({ geometry: newGeometry }).eq('id', featureId);
-        if (error) {
-            alert(`Не удалось обновить геометрию: ${error.message}`);
+    const updateFeatureGeometry = async (featureId, featureType, newGeometry) => {
+        const updateData = { geometry: newGeometry };
+        if (featureType === 'shrub') {
+            updateData.length = length(newGeometry, { units: 'meters' });
+        } else if (['lawn', 'flowerbed', 'polygon'].includes(featureType)) {
+            updateData.area = area(newGeometry);
         }
+        const { error } = await supabase.from('features').update(updateData).eq('id', featureId);
+        if (error) alert(`Не удалось обновить геометрию: ${error.message}`);
     };
 
     return {
-        isModalOpen,
-        isEditing,
-        featureData,
-        shapeType,
-        sorts,
-        openNewFeatureModal,
-        openEditFeatureModal,
-        closeFeatureModal,
-        saveFeature,
-        deleteFeature,
-        updateFeatureGeometry,
-        setFeatureData
+        isModalOpen, isEditing, featureData, shapeType, sorts,
+        openNewFeatureModal, openEditFeatureModal, closeFeatureModal,
+        saveFeature, deleteFeature, updateFeatureGeometry, setFeatureData
     };
 };
