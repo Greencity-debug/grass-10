@@ -190,6 +190,9 @@ const MapWithDrawing = ({ onBack }) => {
   }
 
   const handleDrop = (e, targetLayer) => {
+    // TODO: Порядок слоев сохраняется только в состоянии клиента.
+    // Для сохранения порядка в БД необходимо добавить поле сортировки (например, 'order') в таблицу 'layers'
+    // и обновлять его здесь.
     e.preventDefault()
     
     if (!draggedLayer || draggedLayer.id === targetLayer.id) {
@@ -446,16 +449,29 @@ const MapWithDrawing = ({ onBack }) => {
       return
     }
 
-    const { error } = await supabase
+    // Сначала удаляем связанные полигоны
+    const { error: polygonsError } = await supabase
+      .from('polygons')
+      .delete()
+      .eq('layer_id', layer.id)
+
+    if (polygonsError) {
+      console.error('Ошибка удаления полигонов слоя:', polygonsError)
+      alert('Ошибка при удалении полигонов, принадлежащих слою. Слой не будет удалён.')
+      return
+    }
+
+    // Затем удаляем сам слой
+    const { error: layerError } = await supabase
       .from('layers')
       .delete()
       .eq('id', layer.id)
 
-    if (error) {
-      console.error('Ошибка удаления слоя:', error)
+    if (layerError) {
+      console.error('Ошибка удаления слоя:', layerError)
       alert('Ошибка удаления слоя')
     } else {
-      alert('Слой успешно удалён')
+      alert('Слой и все связанные полигоны успешно удалены')
       loadLayers()
       loadPolygons()
     }
