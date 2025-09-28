@@ -105,7 +105,6 @@ export default function Home() {
                   e.target.style.transform = 'translateY(0px)'
                   e.target.style.boxShadow = '0 4px 12px rgba(74, 93, 35, 0.3)'
                 }}
-                onClick={() => setMode('observer')}
               >
                 Режим наблюдателя
               </button>

@@ -11,7 +11,7 @@ const MapWithDrawing = ({ onBack }) => {
   const [currentPolygon, setCurrentPolygon] = useState(null)
   const [drawingPoints, setDrawingPoints] = useState([])
   const [showModal, setShowModal] = useState(false)
-  const [mapObjects, setMapObjects] = useState([])
+  const [polygons, setPolygons] = useState([])
   const [mapMode, setMapMode] = useState('scheme')
   const [currentTileLayer, setCurrentTileLayer] = useState(null)
   const [showCreateLayerModal, setShowCreateLayerModal] = useState(false)
@@ -19,7 +19,7 @@ const MapWithDrawing = ({ onBack }) => {
   const [editingLayer, setEditingLayer] = useState(null)
   const [layerVisibility, setLayerVisibility] = useState({})
   const [draggedLayer, setDraggedLayer] = useState(null)
-  const [objectData, setObjectData] = useState({
+  const [polygonData, setPolygonData] = useState({
     name: '',
     description: '',
     layerId: ''
@@ -99,13 +99,13 @@ const MapWithDrawing = ({ onBack }) => {
 
   useEffect(() => {
     if (map) {
-      loadMapObjects()
+      loadPolygons()
     }
   }, [map])
 
   useEffect(() => {
-    updateObjectVisibility()
-  }, [layerVisibility, mapObjects])
+    updatePolygonVisibility()
+  }, [layerVisibility, polygons])
 
   const switchMapMode = (mode) => {
     if (!map || !currentTileLayer) return
@@ -190,9 +190,6 @@ const MapWithDrawing = ({ onBack }) => {
   }
 
   const handleDrop = (e, targetLayer) => {
-    // TODO: Порядок слоев сохраняется только в состоянии клиента.
-    // Для сохранения порядка в БД необходимо добавить поле сортировки (например, 'order') в таблицу 'layers'
-    // и обновлять его здесь.
     e.preventDefault()
     
     if (!draggedLayer || draggedLayer.id === targetLayer.id) {
@@ -254,16 +251,16 @@ const MapWithDrawing = ({ onBack }) => {
     setCurrentPolygon(polygon)
   }
 
-  const updateObjectVisibility = () => {
-    if (!map || !mapObjects.length) return
+  const updatePolygonVisibility = () => {
+    if (!map || !polygons.length) return
 
-    mapObjects.forEach(obj => {
-      if (obj.leafletLayer) {
-        const isVisible = layerVisibility[obj.layer_id]
-        if (isVisible && !map.hasLayer(obj.leafletLayer)) {
-          map.addLayer(obj.leafletLayer)
-        } else if (!isVisible && map.hasLayer(obj.leafletLayer)) {
-          map.removeLayer(obj.leafletLayer)
+    polygons.forEach(polygon => {
+      if (polygon.leafletLayer) {
+        const isVisible = layerVisibility[polygon.layer_id]
+        if (isVisible && !map.hasLayer(polygon.leafletLayer)) {
+          map.addLayer(polygon.leafletLayer)
+        } else if (!isVisible && map.hasLayer(polygon.leafletLayer)) {
+          map.removeLayer(polygon.leafletLayer)
         }
       }
     })
@@ -300,13 +297,13 @@ const MapWithDrawing = ({ onBack }) => {
     setShowModal(true)
   }
 
-  const saveObject = async () => {
-    if (!objectData.name.trim()) {
+  const savePolygon = async () => {
+    if (!polygonData.name.trim()) {
       alert('Введите название полигона')
       return
     }
 
-    if (!objectData.layerId) {
+    if (!polygonData.layerId) {
       alert('Выберите слой для полигона')
       return
     }
@@ -320,9 +317,9 @@ const MapWithDrawing = ({ onBack }) => {
     const { data, error } = await supabase
       .from('polygons')
       .insert({
-        name: objectData.name,
-        description: objectData.description,
-        layer_id: objectData.layerId,
+        name: polygonData.name,
+        description: polygonData.description,
+        layer_id: polygonData.layerId,
         geometry: geoJson
       })
 
@@ -332,79 +329,54 @@ const MapWithDrawing = ({ onBack }) => {
     } else {
       alert('Полигон успешно сохранен')
       setShowModal(false)
-      setObjectData({ name: '', description: '', layerId: '' })
+      setPolygonData({ name: '', description: '', layerId: '' })
       setDrawingPoints([])
       if (currentPolygon) {
         map.removeLayer(currentPolygon)
         setCurrentPolygon(null)
       }
-      loadMapObjects()
+      loadPolygons()
     }
   }
 
-  const loadMapObjects = async () => {
+  const loadPolygons = async () => {
     const { data, error } = await supabase
       .from('polygons')
       .select(`*, layers (name, color)`)
     
-    if (error) {
-      console.error('Ошибка загрузки объектов:', error)
-      return
-    }
-
     if (data && map) {
-      mapObjects.forEach(obj => {
-        if (obj.leafletLayer) {
-          map.removeLayer(obj.leafletLayer)
+      polygons.forEach(polygon => {
+        if (polygon.leafletLayer) {
+          map.removeLayer(polygon.leafletLayer)
         }
       })
 
       const L = require('leaflet')
-      const newMapObjects = data.map(obj => {
-        try {
-          if (obj.geometry && obj.geometry.type && obj.geometry.coordinates) {
-            let leafletLayer
-            let popupContent = `<strong>${obj.name}</strong><br>${obj.description || ''}`
+      const newPolygons = data.map(polygon => {
+        if (polygon.geometry && polygon.geometry.coordinates) {
+          const coords = polygon.geometry.coordinates[0].map(coord => [coord[1], coord[0]])
 
-            switch (obj.geometry.type) {
-              case 'Polygon':
-                if (!obj.geometry.coordinates || !obj.geometry.coordinates[0] || obj.geometry.coordinates[0].length < 3) {
-                  console.warn(`Некорректные координаты для полигона: ${obj.name}`)
-                  return obj
-                }
-                const coords = obj.geometry.coordinates[0].map(coord => [coord[1], coord[0]])
-                popupContent += `<br>Площадь: ${obj.square ? (obj.square / 10000).toFixed(2) + ' га' : 'не рассчитана'}`
-                leafletLayer = L.polygon(coords, {
-                  color: obj.layers?.color || '#4CAF50',
-                  fillColor: obj.layers?.color || '#4CAF50',
-                  fillOpacity: 0.3,
-                  weight: 2
-                }).bindPopup(popupContent)
-                break
+          const leafletLayer = L.polygon(coords, {
+            color: polygon.layers?.color || '#4CAF50',
+            fillColor: polygon.layers?.color || '#4CAF50',
+            fillOpacity: 0.3,
+            weight: 2
+          }).bindPopup(`
+            <strong>${polygon.name}</strong><br>
+            ${polygon.description || ''}<br>
+            Площадь: ${polygon.square ? (polygon.square / 10000).toFixed(2) + ' га' : 'не рассчитана'}
+          `)
 
-              case 'Point':
-                const pointCoords = [obj.geometry.coordinates[1], obj.geometry.coordinates[0]]
-                leafletLayer = L.marker(pointCoords).bindPopup(popupContent)
-                break
-
-              default:
-                console.warn(`Неподдерживаемый тип геометрии: ${obj.geometry.type} для объекта: ${obj.name}`)
-                return obj
-            }
-
-            if (layerVisibility[obj.layer_id] !== false) {
-              leafletLayer.addTo(map)
-            }
-
-            return { ...obj, leafletLayer }
+          if (layerVisibility[polygon.layer_id] !== false) {
+            leafletLayer.addTo(map)
           }
-        } catch (e) {
-          console.error(`Ошибка обработки объекта ${obj.id} (${obj.name}):`, e)
+
+          return { ...polygon, leafletLayer }
         }
-        return obj
+        return polygon
       })
 
-      setMapObjects(newMapObjects.filter(Boolean))
+      setPolygons(newPolygons)
     }
   }
 
@@ -465,7 +437,7 @@ const MapWithDrawing = ({ onBack }) => {
       setEditingLayer(null)
       setNewLayerData({ name: '', color: '#4CAF50' })
       loadLayers()
-      loadMapObjects()
+      loadPolygons()
     }
   }
 
@@ -474,31 +446,18 @@ const MapWithDrawing = ({ onBack }) => {
       return
     }
 
-    // Сначала удаляем связанные полигоны
-    const { error: polygonsError } = await supabase
-      .from('polygons')
-      .delete()
-      .eq('layer_id', layer.id)
-
-    if (polygonsError) {
-      console.error('Ошибка удаления полигонов слоя:', polygonsError)
-      alert('Ошибка при удалении полигонов, принадлежащих слою. Слой не будет удалён.')
-      return
-    }
-
-    // Затем удаляем сам слой
-    const { error: layerError } = await supabase
+    const { error } = await supabase
       .from('layers')
       .delete()
       .eq('id', layer.id)
 
-    if (layerError) {
-      console.error('Ошибка удаления слоя:', layerError)
+    if (error) {
+      console.error('Ошибка удаления слоя:', error)
       alert('Ошибка удаления слоя')
     } else {
-      alert('Слой и все связанные полигоны успешно удалены')
+      alert('Слой успешно удалён')
       loadLayers()
-      loadMapObjects()
+      loadPolygons()
     }
   }
 
@@ -581,149 +540,6 @@ const MapWithDrawing = ({ onBack }) => {
           }}></div>
         </div>
 
-        {/* КОМПАКТНЫЕ ИНСТРУМЕНТЫ */}
-        <div style={{ marginBottom: '15px' }}>
-          <h3 style={{ 
-            fontSize: '16px',
-            color: '#333',
-            marginBottom: '10px',
-            fontWeight: '600'
-          }}>
-            Инструменты
-          </h3>
-          
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between',
-            gap: '8px',
-            marginBottom: isDrawing ? '15px' : '0'
-          }}>
-            <button 
-              disabled
-              style={{ 
-                flex: 1,
-                display: 'flex', 
-                flexDirection: 'column',
-                alignItems: 'center',
-                padding: '12px 8px',
-                borderRadius: '8px',
-                backgroundColor: '#f5f5f5',
-                border: '1px solid #e0e0e0',
-                cursor: 'not-allowed',
-                minHeight: '60px'
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="#aaa" style={{ marginBottom: '4px' }}>
-                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-              </svg>
-              <span style={{ fontSize: '10px', color: '#aaa' }}>Удалить</span>
-            </button>
-
-            <button 
-              disabled
-              style={{ 
-                flex: 1,
-                display: 'flex', 
-                flexDirection: 'column',
-                alignItems: 'center',
-                padding: '12px 8px',
-                borderRadius: '8px',
-                backgroundColor: '#f5f5f5',
-                border: '1px solid #e0e0e0',
-                cursor: 'not-allowed',
-                minHeight: '60px'
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="#aaa" style={{ marginBottom: '4px' }}>
-                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-              </svg>
-              <span style={{ fontSize: '10px', color: '#aaa' }}>Изменить</span>
-            </button>
-
-            <button 
-              onClick={isDrawing ? cancelDrawing : startDrawing}
-              style={{ 
-                flex: 1,
-                display: 'flex', 
-                flexDirection: 'column',
-                alignItems: 'center',
-                padding: '12px 8px',
-                borderRadius: '8px',
-                backgroundColor: isDrawing ? '#e3f2fd' : '#f9f9f9',
-                border: isDrawing ? '2px solid #2196F3' : '1px solid #e0e0e0',
-                cursor: 'pointer',
-                minHeight: '60px',
-                transition: 'all 0.2s'
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill={isDrawing ? '#2196F3' : '#333'} style={{ marginBottom: '4px' }}>
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
-              </svg>
-              <span style={{ fontSize: '10px', color: isDrawing ? '#2196F3' : '#333' }}>Добавить</span>
-            </button>
-          </div>
-
-          {isDrawing && (
-            <div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button 
-                  onClick={finishDrawing}
-                  style={{
-                    flex: 1,
-                    padding: '8px',
-                    backgroundColor: '#2196F3',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '12px'
-                  }}
-                >
-                  Завершить
-                </button>
-                <button 
-                  onClick={cancelDrawing}
-                  style={{
-                    flex: 1,
-                    padding: '8px',
-                    backgroundColor: '#f44336',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '12px'
-                  }}
-                >
-                  Отмена
-                </button>
-              </div>
-              
-              <div style={{ 
-                fontSize: '11px', 
-                color: '#666',
-                background: '#f5f5f5',
-                padding: '8px',
-                borderRadius: '4px',
-                marginTop: '8px'
-              }}>
-                <div>Точек: {drawingPoints.length}</div>
-                <div style={{ marginTop: '4px' }}>
-                  {drawingPoints.length < 3 
-                    ? 'Минимум 3 точки для создания полигона'
-                    : 'Кликните в начальную точку для завершения'
-                  }
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* КОМПАКТНЫЙ РАЗДЕЛИТЕЛЬ */}
-        <div style={{ 
-          height: '1px', 
-          background: '#e0e0e0',
-          margin: '15px 0'
-        }}></div>
 
         {/* КОМПАКТНЫЕ СЛОИ */}
         <div style={{ flex: 1 }}>
@@ -983,8 +799,8 @@ const MapWithDrawing = ({ onBack }) => {
               </label>
               <input
                 type="text"
-                value={objectData.name}
-                onChange={(e) => setObjectData({...objectData, name: e.target.value})}
+                value={polygonData.name}
+                onChange={(e) => setPolygonData({...polygonData, name: e.target.value})}
                 style={{ 
                   width: '100%', 
                   padding: '8px', 
@@ -1001,8 +817,8 @@ const MapWithDrawing = ({ onBack }) => {
                 Описание:
               </label>
               <textarea
-                value={objectData.description}
-                onChange={(e) => setObjectData({...objectData, description: e.target.value})}
+                value={polygonData.description}
+                onChange={(e) => setPolygonData({...polygonData, description: e.target.value})}
                 style={{ 
                   width: '100%', 
                   padding: '8px', 
@@ -1021,8 +837,8 @@ const MapWithDrawing = ({ onBack }) => {
                 Слой*:
               </label>
               <select 
-                value={objectData.layerId || ''}
-                onChange={(e) => setObjectData({...objectData, layerId: e.target.value})}
+                value={polygonData.layerId || ''}
+                onChange={(e) => setPolygonData({...polygonData, layerId: e.target.value})}
                 style={{ 
                   width: '100%', 
                   padding: '8px', 
@@ -1040,7 +856,7 @@ const MapWithDrawing = ({ onBack }) => {
 
             <div style={{ display: 'flex', gap: '10px' }}>
               <button 
-                onClick={saveObject}
+                onClick={savePolygon}
                 style={{
                   flex: 1,
                   padding: '10px',
