@@ -219,6 +219,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   const handleMapClick = (e) => {
     if (!drawingMode || isObserver) return;
 
+    const L = require('leaflet');
     const point = [e.latlng.lat, e.latlng.lng];
 
     switch (drawingMode) {
@@ -260,30 +261,39 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   };
 
   const updatePreviewShape = (points, type) => {
-    if (!map || points.length < 1) return;
+    if (!map) return;
     const L = require('leaflet');
 
+    // Remove the previous preview shape from the map
     if (previewShape) {
       map.removeLayer(previewShape);
     }
     
     let shape;
-    if (type === 'polygon' && points.length >= 2) {
+
+    // For lines and polygons, show a marker on the first click for better feedback
+    if ((type === 'polygon' || type === 'line') && points.length === 1) {
+        shape = L.circleMarker(points[0], { radius: 5, color: '#2196F3', fillOpacity: 1 });
+    } else if (type === 'polygon' && points.length >= 2) {
       shape = L.polygon(points, {
         color: '#2196F3',
         fillColor: '#2196F3',
         fillOpacity: 0.3,
         weight: 2
-      }).addTo(map);
+      });
     } else if (type === 'line' && points.length >= 2) {
       shape = L.polyline(points, {
         color: '#2196F3',
         weight: 4
-      }).addTo(map);
+      });
     }
 
+    // If a shape was created, add it to the map and update the state
     if (shape) {
+      shape.addTo(map);
       setPreviewShape(shape);
+    } else {
+      setPreviewShape(null);
     }
   }
 
@@ -304,7 +314,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
 
   const selectTool = (tool) => {
     if (drawingMode === tool) {
-      cancelDrawing()
+      cancelDrawing();
     } else {
       if (layers.length === 0) {
         alert('Сначала создайте хотя бы один слой');
@@ -316,17 +326,23 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
         map.removeLayer(previewShape);
         setPreviewShape(null);
       }
+      if (map && map.getContainer()) {
+        map.getContainer().style.cursor = tool ? 'crosshair' : '';
+      }
     }
-  }
+  };
 
   const cancelDrawing = () => {
-    setDrawingMode(null)
-    setDrawingPoints([])
+    setDrawingMode(null);
+    setDrawingPoints([]);
     if (previewShape) {
-      map.removeLayer(previewShape)
-      setPreviewShape(null)
+      map.removeLayer(previewShape);
+      setPreviewShape(null);
     }
-  }
+    if (map && map.getContainer()) {
+      map.getContainer().style.cursor = '';
+    }
+  };
 
   const finishDrawing = () => {
     // Validation for lines and polygons
