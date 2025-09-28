@@ -44,10 +44,8 @@ export const useFeatureEditor = (layers) => {
             created_at: new Date().toISOString().split('T')[0],
             geometry: geometry,
             flowerVarieties: [{ sort_id: null, quantity: 1 }],
-            // Store raw numbers in state
             length: calculatedLength,
             area: calculatedArea,
-            // Display-only fields (not part of the core data object)
             coordinates: type === 'Marker' ? `${geometry.coordinates[1].toFixed(6)}, ${geometry.coordinates[0].toFixed(6)}` : null,
         });
         setIsModalOpen(true);
@@ -57,7 +55,6 @@ export const useFeatureEditor = (layers) => {
         setIsEditing(true);
         const { data, error } = await supabase.from('features').select('*, feature_varieties(*)').eq('id', featureId).single();
         if (error) {
-            console.error("Error fetching feature to edit:", error);
             alert("Не удалось загрузить данные объекта для редактирования.");
             return;
         }
@@ -89,8 +86,7 @@ export const useFeatureEditor = (layers) => {
             let typeForSorts = shapeType === 'flowerbed' ? 'flower' : shapeType;
             const fetchSorts = async () => {
                 const { data, error } = await supabase.from('sorts').select('id, name').eq('type', typeForSorts);
-                if (error) console.error(`Error fetching sorts for type ${typeForSorts}:`, error);
-                else setSorts(data || []);
+                if (!error) setSorts(data || []);
             };
             fetchSorts();
         }
@@ -121,15 +117,14 @@ export const useFeatureEditor = (layers) => {
         };
         const { data: savedFeature, error } = await supabase.from('features').upsert(dataToSave).select().single();
         if (error) {
-            console.error('Ошибка сохранения объекта:', error); alert(`Не удалось сохранить объект: ${error.message}`); return false;
+            alert(`Не удалось сохранить объект: ${error.message}`); return false;
         }
 
         if (shapeType === 'flowerbed') {
             await supabase.from('feature_varieties').delete().eq('feature_id', savedFeature.id);
             const varietiesToSave = featureData.flowerVarieties.filter(v => v.sort_id && v.quantity > 0).map(v => ({ feature_id: savedFeature.id, sort_id: v.sort_id, quantity: v.quantity }));
             if (varietiesToSave.length > 0) {
-                const { error: varietiesError } = await supabase.from('feature_varieties').insert(varietiesToSave);
-                if (varietiesError) console.error('Ошибка сохранения сортов клумбы:', varietiesError);
+                await supabase.from('feature_varieties').insert(varietiesToSave);
             }
         }
 

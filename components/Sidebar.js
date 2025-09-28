@@ -32,9 +32,7 @@ const Sidebar = ({
         <div className={styles.divider}></div>
       </div>
 
-      {/* The Toolbar section is now removed. The divider is also removed. */}
-
-      {/* Layers */}
+      {/* Layers Section */}
       <div className={styles.layersSection}>
         <div className={styles.layersHeader}>
           <h3 className={styles.sectionTitle}>Слои</h3>

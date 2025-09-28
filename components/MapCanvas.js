@@ -1,6 +1,6 @@
 import React from 'react';
 import styles from './MapCanvas.module.css';
-import DrawingHint from './DrawingHint'; // Import the new component
+import DrawingHint from './DrawingHint';
 
 const MapCanvas = ({ mapRef, mapMode, onSwitchMapMode, hintText }) => {
   return (

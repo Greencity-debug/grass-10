@@ -31,9 +31,6 @@ const MapWithDrawing = ({ onBack }) => {
     updateFeatureGeometry, setFeatureData
   } = useFeatureEditor(layers);
 
-  // --- Ref to break dependency cycle ---
-  const loadFeaturesRef = useRef();
-
   // --- 2. STABLE HELPER FUNCTIONS ---
   const createPopupContent = (feature) => {
     let content = `<strong>${feature.name}</strong>`;
@@ -75,27 +72,20 @@ const MapWithDrawing = ({ onBack }) => {
         layer.featureLayerId = feature.layer_id;
         layer.featureType = feature.type;
         layer.bindPopup(createPopupContent(feature));
-        layer.on('dblclick', () => openEditFeatureModal(feature.id));
+        layer.on('dblclick', () => openEditFeatureModal(feature.id)); // Double-click to edit
         featureLayersRef.current.set(feature.id, layer);
         if (layerVisibility[feature.layer_id] !== false) layer.addTo(map);
       }
     });
-  }, [map, openEditFeatureModal, layerVisibility]);
+  }, [map, openEditFeatureModal]);
 
-  // Keep the ref updated with the latest version of loadFeatures
-  useEffect(() => {
-    loadFeaturesRef.current = loadFeatures;
-  }, [loadFeatures]);
-
-  // --- 4. CALLBACKS FOR HOOKS (must be defined after their dependencies) ---
-  const handleShapeCreated = useCallback((layer, shape) => { openNewFeatureModal(layer, shape); }, [openNewFeatureModal]);
-
+  // --- 4. CALLBACKS AND EVENT HANDLERS ---
   const handleShapeEdited = useCallback(async (layer, newGeometry) => {
     if (layer.featureId && layer.featureType) {
       const success = await updateFeatureGeometry(layer.featureId, layer.featureType, newGeometry);
-      if (success) loadFeaturesRef.current(); // Call via ref to break cycle
+      if (success) await loadFeatures();
     }
-  }, [updateFeatureGeometry]); // No dependency on loadFeatures here!
+  }, [updateFeatureGeometry, loadFeatures]);
 
   const handleShapeRemoved = useCallback(async (layer) => {
     if (layer.featureId) {
@@ -110,15 +100,15 @@ const MapWithDrawing = ({ onBack }) => {
     setHintText(hint);
   }, []);
 
-  const handleDrawEnd = useCallback(() => { setHintText(''); }, []);
-
-  // --- 5. INITIALIZE MAP DRAWING HOOK ---
   const { map, mapMode, switchMapMode } = useMapDrawing(mapRef, {
-      onShapeCreated: handleShapeCreated, onShapeEdited: handleShapeEdited,
-      onShapeRemoved: handleShapeRemoved, onDrawStart: handleDrawStart, onDrawEnd: handleDrawEnd,
+      onShapeCreated: openNewFeatureModal,
+      onShapeEdited: handleShapeEdited,
+      onShapeRemoved: handleShapeRemoved,
+      onDrawStart: handleDrawStart,
+      onDrawEnd: () => setHintText(''),
   });
 
-  // --- 6. LIFECYCLE EFFECTS ---
+  // --- 5. LIFECYCLE EFFECTS ---
   useEffect(() => { if (map) loadFeatures(); }, [map, loadFeatures]);
 
   useEffect(() => {
@@ -130,12 +120,11 @@ const MapWithDrawing = ({ onBack }) => {
     });
   }, [layerVisibility, map]);
 
-  // --- 7. MISC HANDLERS ---
   const handleSaveFeature = async () => { if (await saveFeature()) loadFeatures(); };
   const handleBackClick = () => onBack && typeof onBack === 'function' ? onBack() : window.history.back();
   const handleDeleteLayer = async (layer) => { await deleteLayer(layer); await loadFeatures(); };
 
-  // --- 8. RENDER ---
+  // --- 6. RENDER ---
   return (
     <div style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
       <Sidebar

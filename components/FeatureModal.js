@@ -24,7 +24,6 @@ const FeatureModal = ({
     setFeatureData(prev => ({ ...prev, [name]: finalValue }));
   };
 
-  // Handlers for the dynamic flower varieties list
   const handleVarietyChange = (index, field, value) => {
     const updatedVarieties = [...featureData.flowerVarieties];
     updatedVarieties[index][field] = field === 'quantity' ? parseInt(value, 10) || 0 : value;
@@ -43,7 +42,6 @@ const FeatureModal = ({
     setFeatureData(prev => ({ ...prev, flowerVarieties: updatedVarieties }));
   };
 
-
   const ageOptions = Array.from({ length: 51 }, (_, i) => i);
   const typeName = shapeType ? shapeType.charAt(0).toUpperCase() + shapeType.slice(1) : '';
 
@@ -53,7 +51,6 @@ const FeatureModal = ({
         <h2 className={styles.title}>Карточка объекта: {typeName}</h2>
 
         <form className={styles.form}>
-          {/* Common Fields */}
           <div className={styles.formGroupFull}>
             <label htmlFor="name" className={styles.label}>Название</label>
             <input type="text" id="name" name="name" value={featureData.name} onChange={handleInputChange} className={styles.input} placeholder={`Например, Участок №123`}/>
@@ -70,7 +67,6 @@ const FeatureModal = ({
             </select>
           </div>
 
-          {/* Marker (Tree) */}
           {shapeType === 'tree' && (
             <>
               <div className={styles.formGroup}><label className={styles.label}>Координаты</label><input type="text" value={featureData.coordinates} readOnly className={styles.input}/></div>
@@ -79,7 +75,6 @@ const FeatureModal = ({
             </>
           )}
 
-          {/* Line (Shrub) */}
           {shapeType === 'shrub' && (
             <>
               <div className={styles.formGroup}><label className={styles.label}>Длина</label><input type="text" value={featureData.length ? `${Math.round(featureData.length)} м` : ''} readOnly className={styles.input}/></div>
@@ -88,7 +83,6 @@ const FeatureModal = ({
             </>
           )}
 
-          {/* Polygon (Lawn or Flowerbed) */}
           {(shapeType === 'lawn' || shapeType === 'flowerbed' || shapeType === 'polygon') && (
             <>
               <div className={styles.formGroup}><label className={styles.label}>Площадь</label><input type="text" value={featureData.area ? `${Math.round(featureData.area)} м²` : ''} readOnly className={styles.input}/></div>
@@ -98,7 +92,6 @@ const FeatureModal = ({
             </>
           )}
 
-          {/* Flowerbed specific multi-row list */}
           {shapeType === 'flowerbed' && (
             <div className={styles.formGroupFull}>
               <label className={styles.label}>Сорта цветов</label>

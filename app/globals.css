@@ -1,6 +1,4 @@
 @import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
-@import 'https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.css';
-
 
 html,
 body {
@@ -22,34 +20,7 @@ body {
   width: 100vw;
 }
 
-/* Custom Marker Styles */
-.marker-pin {
-  width: 30px;
-  height: 30px;
-  border-radius: 50% 50% 50% 0;
-  background: #00cae9;
-  position: absolute;
-  transform: rotate(-45deg);
-  left: 50%;
-  top: 50%;
-  margin: -15px 0 0 -15px;
-}
-.marker-pin::after {
-  content: '';
-  width: 14px;
-  height: 14px;
-  margin: 8px 0 0 8px;
-  background: #e6e6e6;
-  position: absolute;
-  border-radius: 50%;
-}
-
-.custom-div-icon i {
-  position: absolute;
-  width: 22px;
-  font-size: 22px;
-  left: 0;
-  right: 0;
-  margin: 10px auto;
-  text-align: center;
+/* Фикс для иконок маркеров */
+.leaflet-default-icon-path {
+  background-image: url('https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png');
 }

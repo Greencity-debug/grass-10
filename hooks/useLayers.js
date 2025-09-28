@@ -12,22 +12,17 @@ export const useLayers = () => {
 
   const loadLayers = useCallback(async () => {
     try {
-      // TEMPORARY FIX: Reverted sorting to 'created_at' because 'position' column does not exist in user's DB.
       const { data, error } = await supabase
         .from('layers')
         .select('*')
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('🚨 Ошибка загрузки слоёв:', error);
-        alert(`Не удалось загрузить слои. Ошибка: ${error.message}`);
+        console.error('Ошибка загрузки слоёв:', error);
         return;
       }
 
       if (data) {
-        if (data.length === 0) {
-          console.log("Диагностика: Запрос к 'layers' успешен, но таблица пуста.");
-        }
         setLayers(data);
         const visibility = {};
         data.forEach(layer => {
@@ -36,7 +31,7 @@ export const useLayers = () => {
         setLayerVisibility(visibility);
       }
     } catch (err) {
-      console.error('💥 Критическая ошибка:', err);
+      console.error('Критическая ошибка:', err);
     }
   }, []);
 
@@ -56,26 +51,17 @@ export const useLayers = () => {
 
   const handleDrop = async (e, targetLayer) => {
     e.preventDefault();
-
     if (!draggedLayer || draggedLayer.id === targetLayer.id) {
       setDraggedLayer(null);
       return;
     }
-
     const currentLayers = [...layers];
     const draggedIndex = currentLayers.findIndex(l => l.id === draggedLayer.id);
     const targetIndex = currentLayers.findIndex(l => l.id === targetLayer.id);
     const [draggedItem] = currentLayers.splice(draggedIndex, 1);
     currentLayers.splice(targetIndex, 0, draggedItem);
-
-    // Update UI optimistically
     setLayers(currentLayers);
     setDraggedLayer(null);
-
-    // Inform user that persistence is disabled.
-    alert("Порядок слоев изменен только визуально. Чтобы сохранять его, добавьте колонку 'position' (тип integer) в таблицу 'layers' в Supabase.");
-
-    // NOTE: The logic to save the new order to Supabase is disabled until the 'position' column is added.
   };
 
   const openCreateLayerModal = () => {
@@ -102,15 +88,11 @@ export const useLayers = () => {
       alert('Введите название слоя');
       return;
     }
-
-    // NOTE: The 'position' field is omitted until the column is added to the database.
     const { error } = await supabase.from('layers').insert({
       name: newLayerData.name,
       color: newLayerData.color,
     });
-
     if (error) {
-      console.error('Ошибка создания слоя:', error);
       alert('Ошибка создания слоя');
     } else {
       alert('Слой успешно создан');
@@ -120,17 +102,12 @@ export const useLayers = () => {
   };
 
   const saveEditedLayer = async () => {
-    if (!newLayerData.name.trim() || !editingLayer) {
-      alert('Введите название слоя');
-      return;
-    }
+    if (!newLayerData.name.trim() || !editingLayer) return;
     const { error } = await supabase.from('layers').update({
       name: newLayerData.name,
       color: newLayerData.color,
     }).eq('id', editingLayer.id);
-
     if (error) {
-      console.error('Ошибка редактирования слоя:', error);
       alert('Ошибка редактирования слоя');
     } else {
       alert('Слой успешно обновлён');
@@ -140,13 +117,9 @@ export const useLayers = () => {
   };
 
   const deleteLayer = async (layer) => {
-    if (!confirm(`Удалить слой "${layer.name}"? Все полигоны этого слоя тоже будут удалены.`)) {
-      return;
-    }
+    if (!confirm(`Удалить слой "${layer.name}"? Все полигоны этого слоя тоже будут удалены.`)) return;
     const { error } = await supabase.from('layers').delete().eq('id', layer.id);
-
     if (error) {
-      console.error('Ошибка удаления слоя:', error);
       alert('Ошибка удаления слоя');
     } else {
       alert('Слой успешно удалён');
@@ -162,23 +135,9 @@ export const useLayers = () => {
   };
 
   return {
-    layers,
-    layerVisibility,
-    showCreateLayerModal,
-    showEditLayerModal,
-    newLayerData,
-    setNewLayerData,
-    handleDragStart,
-    handleDragOver,
-    handleDrop,
-    openCreateLayerModal,
-    closeCreateLayerModal,
-    openEditLayerModal,
-    closeEditLayerModal,
-    saveNewLayer,
-    saveEditedLayer,
-    deleteLayer,
-    toggleLayerVisibility,
-    loadLayers,
+    layers, layerVisibility, showCreateLayerModal, showEditLayerModal, newLayerData,
+    setNewLayerData, handleDragStart, handleDragOver, handleDrop, openCreateLayerModal,
+    closeCreateLayerModal, openEditLayerModal, closeEditLayerModal, saveNewLayer,
+    saveEditedLayer, deleteLayer, toggleLayerVisibility,
   };
 };

@@ -44,7 +44,7 @@
   width: 14px;
   height: 14px;
   border-radius: 3px;
-  margin-left: 8px; /* Added margin to the left */
+  margin-left: 8px;
   margin-right: 8px;
   border: 1px solid rgba(0,0,0,0.1);
 }
@@ -58,14 +58,13 @@
   text-overflow: ellipsis;
 }
 
-/* Visibility Switch */
 .visibilitySwitch {
   position: relative;
   display: inline-block;
   width: 34px;
   height: 20px;
   cursor: pointer;
-  margin-left: auto; /* Pushes the switch to the far right */
+  margin-left: auto;
 }
 
 .visibilitySwitch input {

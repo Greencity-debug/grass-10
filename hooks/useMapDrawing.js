@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import L from 'leaflet';
 import '@geoman-io/leaflet-geoman-free';
 
-// Fix for default Leaflet icon issue with webpack
+// Fix for default Leaflet icon issue
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
@@ -17,20 +17,12 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
 
   const initializeMap = useCallback(() => {
     if (mapRef.current && !map) {
-      const mapInstance = L.map(mapRef.current, {
-        center: [55.709362, 52.308385],
-        zoom: 15,
-        zoomControl: true,
-      });
-
+      const mapInstance = L.map(mapRef.current, { center: [55.709362, 52.308385], zoom: 15, zoomControl: true });
       const tileLayer = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
-        attribution: '© Яндекс',
-        maxZoom: 19
+        attribution: '© Яндекс', maxZoom: 19
       }).addTo(mapInstance);
-
       setCurrentTileLayer(tileLayer);
       setMap(mapInstance);
-
       setTimeout(() => mapInstance.invalidateSize(), 100);
     }
   }, [mapRef, map]);
@@ -43,7 +35,7 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
   useEffect(() => {
     if (map) {
         map.pm.setLang('ru');
-        map.pm.setGlobalOptions({ snappable: false });
+        map.pm.setGlobalOptions({ snappable: false }); // Disable snapping
         map.pm.addControls({
             position: 'topleft',
             drawMarker: true,
@@ -53,16 +45,15 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
             drawCircle: false,
             drawCircleMarker: false,
             drawText: false,
-            editMode: true,
+            editMode: true, // Edit mode is ON by default
             dragMode: false,
             cutPolygon: false,
             removalMode: true,
         });
 
-        // Event listeners for Geoman actions
         const handleCreate = (e) => {
             if (onShapeCreated) onShapeCreated(e.layer, e.shape);
-            if (onDrawEnd) onDrawEnd(); // Drawing ends on creation
+            if (onDrawEnd) onDrawEnd();
         };
         const handleEdit = (e) => onShapeEdited && onShapeEdited(e.layer, e.layer.toGeoJSON().geometry);
         const handleRemove = (e) => onShapeRemoved && onShapeRemoved(e.layer);
@@ -73,7 +64,7 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
         map.on('pm:edit', handleEdit);
         map.on('pm:remove', handleRemove);
         map.on('pm:drawstart', handleDrawStart);
-        map.on('pm:drawend', handleDrawEnd); // When drawing is cancelled
+        map.on('pm:drawend', handleDrawEnd);
 
         return () => {
             map.pm.removeControls();
@@ -86,13 +77,10 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
     }
   }, [map, onShapeCreated, onShapeEdited, onShapeRemoved, onDrawStart, onDrawEnd]);
 
-
   const switchMapMode = (mode) => {
     if (!map || !currentTileLayer) return;
-
     map.removeLayer(currentTileLayer);
     let newTileLayer;
-
     switch (mode) {
       case 'satellite':
         newTileLayer = L.tileLayer('https://core-sat.maps.yandex.net/tiles?l=sat&v=3.1072.0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', { attribution: '© Яндекс', maxZoom: 19 });
@@ -106,15 +94,10 @@ export const useMapDrawing = (mapRef, { onShapeCreated, onShapeEdited, onShapeRe
       default:
         newTileLayer = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', { attribution: '© Яндекс', maxZoom: 19 });
     }
-
     newTileLayer.addTo(map);
     setCurrentTileLayer(newTileLayer);
     setMapMode(mode);
   };
 
-  return {
-    map,
-    mapMode,
-    switchMapMode,
-  };
+  return { map, mapMode, switchMapMode };
 };
