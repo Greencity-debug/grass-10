@@ -1,0 +1,106 @@
+.layerItem {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  padding: 8px;
+  border-radius: 4px;
+  background-color: #fafafa;
+  border: 1px solid #eee;
+  cursor: grab;
+  transition: background-color 0.2s;
+}
+
+.layerItem:hover {
+    background-color: #f0f0f0;
+}
+
+.dragHandle {
+  margin-right: 6px;
+  color: #ccc;
+  font-size: 12px;
+  cursor: grab;
+  padding: 4px;
+}
+
+.layerButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  margin-right: 4px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.layerButton:hover {
+    background-color: #e0e0e0;
+    color: #333;
+}
+
+.layerColor {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  margin-left: 8px; /* Added margin to the left */
+  margin-right: 8px;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.layerName {
+  flex: 1;
+  color: #333;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Visibility Switch */
+.visibilitySwitch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 20px;
+  cursor: pointer;
+  margin-left: auto; /* Pushes the switch to the far right */
+}
+
+.visibilitySwitch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  border-radius: 20px;
+  transition: all 0.3s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  border-radius: 50%;
+  transition: all 0.3s;
+}
+
+.visibilitySwitch input:checked + .slider {
+  background-color: #4A5D23;
+}
+
+.visibilitySwitch input:checked + .slider:before {
+  transform: translateX(14px);
+}
