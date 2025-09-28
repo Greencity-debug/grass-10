@@ -13,6 +13,7 @@ import { getTreeShrubColor, getLawnColor } from '@/lib/colorUtils';
 import L from 'leaflet';
 
 const MapWithDrawing = ({ onBack }) => {
+  // --- 1. STATE AND HOOKS ---
   const mapRef = useRef(null);
   const featureLayersRef = useRef(new Map());
   const [hintText, setHintText] = useState('');
@@ -30,7 +31,10 @@ const MapWithDrawing = ({ onBack }) => {
     updateFeatureGeometry, setFeatureData
   } = useFeatureEditor(layers);
 
-  // --- Helper Functions ---
+  // --- Ref to break dependency cycle ---
+  const loadFeaturesRef = useRef();
+
+  // --- 2. STABLE HELPER FUNCTIONS ---
   const createPopupContent = (feature) => {
     let content = `<strong>${feature.name}</strong>`;
     if (feature.layers && feature.layers.name) content += `<br>Слой: ${feature.layers.name}`;
@@ -41,8 +45,7 @@ const MapWithDrawing = ({ onBack }) => {
     return content;
   };
 
-  // --- Main Data Loading Function ---
-  // It's defined as a stable useCallback that only depends on `map` and `openEditFeatureModal`.
+  // --- 3. MAIN DATA LOADING LOGIC ---
   const loadFeatures = useCallback(async () => {
     if (!map) return;
 
@@ -79,39 +82,45 @@ const MapWithDrawing = ({ onBack }) => {
     });
   }, [map, openEditFeatureModal, layerVisibility]);
 
-  // --- Event Handlers ---
-  // These are now simple functions, not useCallback, to break the dependency cycle.
-  const handleShapeEdited = async (layer, newGeometry) => {
+  // Keep the ref updated with the latest version of loadFeatures
+  useEffect(() => {
+    loadFeaturesRef.current = loadFeatures;
+  }, [loadFeatures]);
+
+  // --- 4. CALLBACKS FOR HOOKS (must be defined after their dependencies) ---
+  const handleShapeCreated = useCallback((layer, shape) => { openNewFeatureModal(layer, shape); }, [openNewFeatureModal]);
+
+  const handleShapeEdited = useCallback(async (layer, newGeometry) => {
     if (layer.featureId && layer.featureType) {
       const success = await updateFeatureGeometry(layer.featureId, layer.featureType, newGeometry);
-      if (success) loadFeatures(); // Directly call loadFeatures from the outer scope
+      if (success) loadFeaturesRef.current(); // Call via ref to break cycle
     }
-  };
+  }, [updateFeatureGeometry]); // No dependency on loadFeatures here!
 
-  const handleShapeRemoved = async (layer) => {
+  const handleShapeRemoved = useCallback(async (layer) => {
     if (layer.featureId) {
       if (await deleteFeature(layer.featureId)) featureLayersRef.current.delete(layer.featureId);
     }
-  };
+  }, [deleteFeature]);
 
-  const handleDrawStart = (shape) => {
+  const handleDrawStart = useCallback((shape) => {
     let hint = 'Кликните на карту, чтобы добавить точки.';
     if (shape === 'Polyline') hint = 'Двойной клик для завершения линии.';
     else if (shape === 'Polygon') hint = 'Кликните на первую точку, чтобы завершить полигон.';
     setHintText(hint);
-  };
+  }, []);
 
-  // --- Initialize Map Drawing Hook ---
+  const handleDrawEnd = useCallback(() => { setHintText(''); }, []);
+
+  // --- 5. INITIALIZE MAP DRAWING HOOK ---
   const { map, mapMode, switchMapMode } = useMapDrawing(mapRef, {
-      onShapeCreated: openNewFeatureModal,
-      onShapeEdited: handleShapeEdited,
-      onShapeRemoved: handleShapeRemoved,
-      onDrawStart: handleDrawStart,
-      onDrawEnd: () => setHintText(''),
+      onShapeCreated: handleShapeCreated, onShapeEdited: handleShapeEdited,
+      onShapeRemoved: handleShapeRemoved, onDrawStart: handleDrawStart, onDrawEnd: handleDrawEnd,
   });
 
-  // --- Lifecycle Effects ---
+  // --- 6. LIFECYCLE EFFECTS ---
   useEffect(() => { if (map) loadFeatures(); }, [map, loadFeatures]);
+
   useEffect(() => {
     if (!map) return;
     featureLayersRef.current.forEach((layer) => {
@@ -121,12 +130,12 @@ const MapWithDrawing = ({ onBack }) => {
     });
   }, [layerVisibility, map]);
 
-  // --- Misc Handlers ---
+  // --- 7. MISC HANDLERS ---
   const handleSaveFeature = async () => { if (await saveFeature()) loadFeatures(); };
   const handleBackClick = () => onBack && typeof onBack === 'function' ? onBack() : window.history.back();
   const handleDeleteLayer = async (layer) => { await deleteLayer(layer); await loadFeatures(); };
 
-  // --- Render ---
+  // --- 8. RENDER ---
   return (
     <div style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
       <Sidebar
