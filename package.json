@@ -8,7 +8,10 @@
     "start": "next start"
   },
   "dependencies": {
+    "@geoman-io/leaflet-geoman-free": "^2.18.3",
     "@supabase/supabase-js": "^2.57.4",
+    "@turf/area": "^7.2.0",
+    "@turf/length": "^7.2.0",
     "framer-motion": "^12.23.16",
     "leaflet": "^1.9.4",
     "lottie-react": "^2.4.1",
