@@ -30,9 +30,7 @@ const MapWithDrawing = ({ onBack }) => {
     updateFeatureGeometry, setFeatureData
   } = useFeatureEditor(layers);
 
-  // --- Ref to break dependency cycle ---
-  const loadFeaturesRef = useRef();
-
+  // --- Helper Functions ---
   const createPopupContent = (feature) => {
     let content = `<strong>${feature.name}</strong>`;
     if (feature.layers && feature.layers.name) content += `<br>Слой: ${feature.layers.name}`;
@@ -43,6 +41,8 @@ const MapWithDrawing = ({ onBack }) => {
     return content;
   };
 
+  // --- Main Data Loading Function ---
+  // It's defined as a stable useCallback that only depends on `map` and `openEditFeatureModal`.
   const loadFeatures = useCallback(async () => {
     if (!map) return;
 
@@ -77,38 +77,40 @@ const MapWithDrawing = ({ onBack }) => {
         if (layerVisibility[feature.layer_id] !== false) layer.addTo(map);
       }
     });
-  }, [map, openEditFeatureModal]);
+  }, [map, openEditFeatureModal, layerVisibility]);
 
-  // Keep the ref updated with the latest version of loadFeatures
-  useEffect(() => {
-    loadFeaturesRef.current = loadFeatures;
-  }, [loadFeatures]);
-
-  const handleShapeCreated = useCallback((layer, shape) => { openNewFeatureModal(layer, shape); }, [openNewFeatureModal]);
-  const handleShapeEdited = useCallback(async (layer, newGeometry) => {
+  // --- Event Handlers ---
+  // These are now simple functions, not useCallback, to break the dependency cycle.
+  const handleShapeEdited = async (layer, newGeometry) => {
     if (layer.featureId && layer.featureType) {
       const success = await updateFeatureGeometry(layer.featureId, layer.featureType, newGeometry);
-      if (success) loadFeaturesRef.current(); // Call via ref to break cycle
+      if (success) loadFeatures(); // Directly call loadFeatures from the outer scope
     }
-  }, [updateFeatureGeometry]); // No dependency on loadFeatures here
-  const handleShapeRemoved = useCallback(async (layer) => {
+  };
+
+  const handleShapeRemoved = async (layer) => {
     if (layer.featureId) {
       if (await deleteFeature(layer.featureId)) featureLayersRef.current.delete(layer.featureId);
     }
-  }, [deleteFeature]);
-  const handleDrawStart = useCallback((shape) => {
+  };
+
+  const handleDrawStart = (shape) => {
     let hint = 'Кликните на карту, чтобы добавить точки.';
     if (shape === 'Polyline') hint = 'Двойной клик для завершения линии.';
     else if (shape === 'Polygon') hint = 'Кликните на первую точку, чтобы завершить полигон.';
     setHintText(hint);
-  }, []);
-  const handleDrawEnd = useCallback(() => { setHintText(''); }, []);
+  };
 
+  // --- Initialize Map Drawing Hook ---
   const { map, mapMode, switchMapMode } = useMapDrawing(mapRef, {
-      onShapeCreated: handleShapeCreated, onShapeEdited: handleShapeEdited,
-      onShapeRemoved: handleShapeRemoved, onDrawStart: handleDrawStart, onDrawEnd: handleDrawEnd,
+      onShapeCreated: openNewFeatureModal,
+      onShapeEdited: handleShapeEdited,
+      onShapeRemoved: handleShapeRemoved,
+      onDrawStart: handleDrawStart,
+      onDrawEnd: () => setHintText(''),
   });
 
+  // --- Lifecycle Effects ---
   useEffect(() => { if (map) loadFeatures(); }, [map, loadFeatures]);
   useEffect(() => {
     if (!map) return;
@@ -119,16 +121,18 @@ const MapWithDrawing = ({ onBack }) => {
     });
   }, [layerVisibility, map]);
 
+  // --- Misc Handlers ---
   const handleSaveFeature = async () => { if (await saveFeature()) loadFeatures(); };
   const handleBackClick = () => onBack && typeof onBack === 'function' ? onBack() : window.history.back();
   const handleDeleteLayer = async (layer) => { await deleteLayer(layer); await loadFeatures(); };
 
+  // --- Render ---
   return (
     <div style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
       <Sidebar
         onBack={handleBackClick} onCreateLayer={openCreateLayerModal} layers={layers}
         onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
-        onDeleteLayer={handleDeleteLayer} onEditLayer={openEditLayerModal}
+        onDeleteLayer={handleDeleteLayer} onEditLayer={openEditFeatureModal}
         layerVisibility={layerVisibility} onToggleLayerVisibility={toggleLayerVisibility}
       />
       <MapCanvas mapRef={mapRef} mapMode={mapMode} onSwitchMapMode={switchMapMode} hintText={hintText} />
