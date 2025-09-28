@@ -20,12 +20,17 @@ const MapWithDrawing = dynamic(() => import('../components/MapWithDrawing'), {
 })
 
 export default function Home() {
-  const [mode, setMode] = useState('observer')
+  const [mode, setMode] = useState('observer'); // 'observer' is the home screen
+  const [isObserverMap, setIsObserverMap] = useState(false);
 
   const handleBackToHome = () => {
-    console.log('handleBackToHome called') // для отладки
-    setMode('observer')
-  }
+    setMode('observer');
+  };
+
+  const handleModeSelection = (isObserver) => {
+    setIsObserverMap(isObserver);
+    setMode('management'); // 'management' now simply means 'show the map'
+  };
 
   return (
     <div style={{ height: '100vh', width: '100vw' }}>
@@ -41,7 +46,6 @@ export default function Home() {
           padding: '40px'
         }}>
           
-          {/* Белый контейнер со скругленными углами */}
           <div style={{
             background: 'white',
             borderRadius: '16px',
@@ -53,7 +57,6 @@ export default function Home() {
             maxWidth: '600px'
           }}>
             
-            {/* Заголовок */}
             <h1 style={{
               fontSize: '64px',
               fontWeight: 'bold',
@@ -65,7 +68,6 @@ export default function Home() {
               Grasscutter
             </h1>
             
-            {/* Подзаголовок */}
             <p style={{
               fontSize: '20px',
               color: '#6B7280',
@@ -75,7 +77,6 @@ export default function Home() {
               Система управления зелёным хозяйством
             </p>
             
-            {/* Кнопки */}
             <div style={{
               display: 'flex',
               gap: '15px',
@@ -105,6 +106,7 @@ export default function Home() {
                   e.target.style.transform = 'translateY(0px)'
                   e.target.style.boxShadow = '0 4px 12px rgba(74, 93, 35, 0.3)'
                 }}
+                onClick={() => handleModeSelection(true)}
               >
                 Режим наблюдателя
               </button>
@@ -123,7 +125,7 @@ export default function Home() {
                   transition: 'all 0.2s ease',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
                 }}
-                onClick={() => setMode('management')}
+                onClick={() => handleModeSelection(false)}
                 onMouseOver={(e) => {
                   e.target.style.backgroundColor = '#4A5D23'
                   e.target.style.color = 'white'
@@ -141,7 +143,6 @@ export default function Home() {
               </button>
             </div>
             
-            {/* Lottie анимация */}
             <div style={{
               width: '300px',
               height: '225px',
@@ -165,7 +166,7 @@ export default function Home() {
           </div>
         </div>
       ) : (
-        <MapWithDrawing onBack={handleBackToHome} />
+        <MapWithDrawing onBack={handleBackToHome} isObserver={isObserverMap} />
       )}
     </div>
   )

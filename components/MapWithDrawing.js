@@ -1,32 +1,34 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useEffect, useRef, useState } from 'react';
+import { supabase } from '../lib/supabase';
+import ObjectModal from './ObjectModal'; // Импортируем универсальное модальное окно
 
-const MapWithDrawing = ({ onBack }) => {
-  const mapRef = useRef(null)
-  const [map, setMap] = useState(null)
-  const [layers, setLayers] = useState([])
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [currentPolygon, setCurrentPolygon] = useState(null)
-  const [drawingPoints, setDrawingPoints] = useState([])
-  const [showModal, setShowModal] = useState(false)
-  const [mapObjects, setMapObjects] = useState([])
-  const [mapMode, setMapMode] = useState('scheme')
-  const [currentTileLayer, setCurrentTileLayer] = useState(null)
-  const [showCreateLayerModal, setShowCreateLayerModal] = useState(false)
-  const [showEditLayerModal, setShowEditLayerModal] = useState(false)
-  const [editingLayer, setEditingLayer] = useState(null)
-  const [layerVisibility, setLayerVisibility] = useState({})
-  const [draggedLayer, setDraggedLayer] = useState(null)
-  const [objectData, setObjectData] = useState({
-    name: '',
-    description: '',
-    layerId: ''
-  })
+const MapWithDrawing = ({ onBack, isObserver }) => {
+  const mapRef = useRef(null);
+  const [map, setMap] = useState(null);
+  const [layers, setLayers] = useState([]);
+  const [drawingMode, setDrawingMode] = useState(null); // 'marker', 'line', 'polygon'
+  const [previewShape, setPreviewShape] = useState(null);
+  const [drawingPoints, setDrawingPoints] = useState([]);
+
+  // Состояния для универсального модального окна
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [currentObject, setCurrentObject] = useState(null); // Объект для редактирования/создания
+
+  // Все объекты с карты
+  const [mapObjects, setMapObjects] = useState([]);
+
+  const [mapMode, setMapMode] = useState('scheme');
+  const [currentTileLayer, setCurrentTileLayer] = useState(null);
+  const [showCreateLayerModal, setShowCreateLayerModal] = useState(false);
+  const [showEditLayerModal, setShowEditLayerModal] = useState(false);
+  const [editingLayer, setEditingLayer] = useState(null);
+  const [layerVisibility, setLayerVisibility] = useState({});
+  const [draggedLayer, setDraggedLayer] = useState(null);
   const [newLayerData, setNewLayerData] = useState({
     name: '',
-    color: '#4CAF50'
+    color: '#4CAF50',
   })
 
   useEffect(() => {
@@ -72,7 +74,7 @@ const MapWithDrawing = ({ onBack }) => {
         zoomControl: true,
         dragging: true,
         touchZoom: true,
-        doubleClickZoom: true,
+        doubleClickZoom: false, // Отключаем стандартный зум по двойному клику
         scrollWheelZoom: true,
         boxZoom: true,
         keyboard: true,
@@ -86,6 +88,7 @@ const MapWithDrawing = ({ onBack }) => {
 
       setCurrentTileLayer(tileLayer)
       mapInstance.on('click', handleMapClick)
+      mapInstance.on('dblclick', handleMapDoubleClick) // Добавляем обработчик двойного клика
       setMap(mapInstance)
 
       setTimeout(() => mapInstance.invalidateSize(), 100)
@@ -99,13 +102,13 @@ const MapWithDrawing = ({ onBack }) => {
 
   useEffect(() => {
     if (map) {
-      loadMapObjects()
+      loadMapObjects();
     }
-  }, [map])
+  }, [map]);
 
   useEffect(() => {
-    updateObjectVisibility()
-  }, [layerVisibility, mapObjects])
+    updateObjectVisibility();
+  }, [layerVisibility, mapObjects]);
 
   const switchMapMode = (mode) => {
     if (!map || !currentTileLayer) return
@@ -178,7 +181,6 @@ const MapWithDrawing = ({ onBack }) => {
     }
   }
 
-  // Функции для drag & drop слоёв
   const handleDragStart = (e, layer) => {
     setDraggedLayer(layer)
     e.dataTransfer.effectAllowed = 'move'
@@ -201,7 +203,6 @@ const MapWithDrawing = ({ onBack }) => {
     const draggedIndex = newLayers.findIndex(l => l.id === draggedLayer.id)
     const targetIndex = newLayers.findIndex(l => l.id === targetLayer.id)
     
-    // Переставляем элементы
     newLayers.splice(draggedIndex, 1)
     newLayers.splice(targetIndex, 0, draggedLayer)
     
@@ -209,201 +210,402 @@ const MapWithDrawing = ({ onBack }) => {
     setDraggedLayer(null)
   }
 
-  const handleMapClick = (e) => {
-    if (!isDrawing) return
-
-    const point = [e.latlng.lat, e.latlng.lng]
-    const newPoints = [...drawingPoints, point]
-    
-    if (drawingPoints.length > 2) {
-      const firstPoint = drawingPoints[0]
-      const distance = Math.sqrt(
-        Math.pow(e.latlng.lat - firstPoint[0], 2) + 
-        Math.pow(e.latlng.lng - firstPoint[1], 2)
-      )
-      
-      if (distance < 0.001) {
-        finishDrawing()
-        return
-      }
+  const handleMapDoubleClick = (e) => {
+    if (drawingMode === 'line' && drawingPoints.length >= 2) {
+      finishDrawing();
     }
-
-    setDrawingPoints(newPoints)
-    updateCurrentPolygon(newPoints)
   }
 
-  const updateCurrentPolygon = (points) => {
-    if (!map || points.length < 2) return
+  const handleMapClick = (e) => {
+    if (!drawingMode || isObserver) return;
 
-    const L = require('leaflet')
+    const point = [e.latlng.lat, e.latlng.lng];
+
+    switch (drawingMode) {
+      case 'marker':
+        setCurrentObject({
+          geometry: {
+            type: 'Point',
+            coordinates: [point[1], point[0]] // GeoJSON format [lng, lat]
+          },
+          object_type: 'marker',
+          properties: {},
+        });
+        setIsModalOpen(true);
+        // We don't need to set drawingPoints for a single marker
+        // and cancelDrawing will be called after saving.
+        break;
+
+      case 'polygon':
+        const newPolygonPoints = [...drawingPoints, point];
+        if (drawingPoints.length >= 2) {
+          const firstPoint = drawingPoints[0];
+          const distance = map.distance(e.latlng, L.latLng(firstPoint));
+
+          if (distance < 15) { // 15-метровый допуск для замыкания
+            finishDrawing();
+            return;
+          }
+        }
+        setDrawingPoints(newPolygonPoints);
+        updatePreviewShape(newPolygonPoints, 'polygon');
+        break;
+
+      case 'line':
+        const newLinePoints = [...drawingPoints, point];
+        setDrawingPoints(newLinePoints);
+        updatePreviewShape(newLinePoints, 'line');
+        break;
+    }
+  };
+
+  const updatePreviewShape = (points, type) => {
+    if (!map || points.length < 1) return;
+    const L = require('leaflet');
+
+    if (previewShape) {
+      map.removeLayer(previewShape);
+    }
     
-    if (currentPolygon) {
-      map.removeLayer(currentPolygon)
+    let shape;
+    if (type === 'polygon' && points.length >= 2) {
+      shape = L.polygon(points, {
+        color: '#2196F3',
+        fillColor: '#2196F3',
+        fillOpacity: 0.3,
+        weight: 2
+      }).addTo(map);
+    } else if (type === 'line' && points.length >= 2) {
+      shape = L.polyline(points, {
+        color: '#2196F3',
+        weight: 4
+      }).addTo(map);
     }
 
-    const polygon = L.polygon(points, {
-      color: '#2196F3',
-      fillColor: '#2196F3',
-      fillOpacity: 0.3,
-      weight: 2
-    }).addTo(map)
-
-    setCurrentPolygon(polygon)
+    if (shape) {
+      setPreviewShape(shape);
+    }
   }
 
   const updateObjectVisibility = () => {
-    if (!map || !mapObjects.length) return
+    if (!map || !mapObjects.length) return;
 
     mapObjects.forEach(obj => {
       if (obj.leafletLayer) {
-        const isVisible = layerVisibility[obj.layer_id]
+        const isVisible = layerVisibility[obj.layer_id];
         if (isVisible && !map.hasLayer(obj.leafletLayer)) {
-          map.addLayer(obj.leafletLayer)
+          map.addLayer(obj.leafletLayer);
         } else if (!isVisible && map.hasLayer(obj.leafletLayer)) {
-          map.removeLayer(obj.leafletLayer)
+          map.removeLayer(obj.leafletLayer);
         }
       }
-    })
-  }
+    });
+  };
 
-  const startDrawing = () => {
-    if (layers.length === 0) {
-      alert('Создайте хотя бы один слой для рисования')
-      return
-    }
-    setIsDrawing(true)
-    setDrawingPoints([])
-    if (currentPolygon) {
-      map.removeLayer(currentPolygon)
-      setCurrentPolygon(null)
+  const selectTool = (tool) => {
+    if (drawingMode === tool) {
+      cancelDrawing()
+    } else {
+      if (layers.length === 0) {
+        alert('Сначала создайте хотя бы один слой');
+        return;
+      }
+      setDrawingMode(tool);
+      setDrawingPoints([]);
+      if (previewShape) {
+        map.removeLayer(previewShape);
+        setPreviewShape(null);
+      }
     }
   }
 
   const cancelDrawing = () => {
-    setIsDrawing(false)
+    setDrawingMode(null)
     setDrawingPoints([])
-    if (currentPolygon) {
-      map.removeLayer(currentPolygon)
-      setCurrentPolygon(null)
+    if (previewShape) {
+      map.removeLayer(previewShape)
+      setPreviewShape(null)
     }
   }
 
   const finishDrawing = () => {
-    if (drawingPoints.length < 3) {
-      alert('Полигон должен содержать минимум 3 точки')
-      return
+    // Validation for lines and polygons
+    if (drawingMode === 'polygon' && drawingPoints.length < 3) {
+      alert('Полигон должен содержать минимум 3 точки');
+      cancelDrawing();
+      return;
     }
-    setIsDrawing(false)
-    setShowModal(true)
-  }
-
-  const saveObject = async () => {
-    if (!objectData.name.trim()) {
-      alert('Введите название объекта')
-      return
+    if (drawingMode === 'line' && drawingPoints.length < 2) {
+      alert('Линия должна содержать минимум 2 точки');
+      cancelDrawing();
+      return;
     }
 
-    if (!objectData.layerId) {
-      alert('Выберите слой для объекта')
-      return
+    let geometry;
+    const object_type = drawingMode;
+
+    switch (drawingMode) {
+      case 'line':
+        geometry = {
+          type: 'LineString',
+          coordinates: drawingPoints.map(p => [p[1], p[0]])
+        };
+        break;
+      case 'polygon':
+        const closedPoints = [...drawingPoints, drawingPoints[0]];
+        geometry = {
+          type: 'Polygon',
+          coordinates: [closedPoints.map(p => [p[1], p[0]])]
+        };
+        break;
+      default:
+        console.error("finishDrawing called with invalid drawing mode:", drawingMode);
+        cancelDrawing();
+        return;
     }
 
-    const closedPoints = [...drawingPoints, drawingPoints[0]]
-    const geoJson = {
-      type: 'Polygon',
-      coordinates: [closedPoints.map(point => [point[1], point[0]])]
+    setCurrentObject({
+      geometry,
+      object_type,
+      properties: {},
+    });
+    setIsModalOpen(true);
+  };
+
+  const saveObject = async (formData) => {
+    // Basic validation
+    if (!currentObject || !formData.layer_id) {
+      alert('Необходимо выбрать слой.');
+      return;
+    }
+    if (!formData.name || formData.name.trim() === '') {
+      alert('Необходимо указать название объекта.');
+      return;
     }
 
-    const { data, error } = await supabase
-      .from('polygons')
-      .insert({
-        name: objectData.name,
-        description: objectData.description,
-        layer_id: objectData.layerId,
-        geometry: geoJson
-      })
+    const { layer_id, ...properties } = formData;
+    const selectedLayer = layers.find(l => l.id === layer_id);
+
+    // Contextual validation
+    if (selectedLayer) {
+        let missingField = '';
+        switch (selectedLayer.name) {
+            case 'Деревья':
+                if (!properties.age) missingField = 'Возраст';
+                if (!properties.variety_id) missingField = 'Сорт';
+                break;
+            case 'Кустарники':
+                if (!properties.variety_id) missingField = 'Сорт';
+                break;
+            case 'Малые архитектурные формы':
+                if (!properties.type_id) missingField = 'Тип МАФ';
+                break;
+            default: break;
+        }
+        if (missingField) {
+            alert(`Для слоя "${selectedLayer.name}" необходимо заполнить поле "${missingField}".`);
+            return;
+        }
+    }
+
+    const isEditing = currentObject.id;
+    const variety_ids = properties.variety_ids;
+    if (selectedLayer?.name === 'Клумбы') {
+        delete properties.variety_ids;
+    }
+
+    let result;
+    if (isEditing) {
+      result = await supabase.from('map_objects').update({ layer_id, properties }).eq('id', currentObject.id).select().single();
+    } else {
+      const { geometry, object_type } = currentObject;
+      result = await supabase.from('map_objects').insert({ layer_id, object_type, geometry, properties }).select().single();
+    }
+
+    const { data: savedObject, error } = result;
 
     if (error) {
-      console.error('Ошибка сохранения объекта:', error)
-      alert('Ошибка сохранения объекта')
-    } else {
-      alert('Объект успешно сохранен')
-      setShowModal(false)
-      setObjectData({ name: '', description: '', layerId: '' })
-      setDrawingPoints([])
-      if (currentPolygon) {
-        map.removeLayer(currentPolygon)
-        setCurrentPolygon(null)
+      console.error('Ошибка сохранения объекта:', error);
+      alert(`Не удалось сохранить объект: ${error.message}`);
+      // Restore variety_ids if save failed, so user can retry without losing selection
+      if (selectedLayer?.name === 'Клумбы') {
+          properties.variety_ids = variety_ids;
       }
-      loadMapObjects()
+    } else {
+      // Handle flowerbed composition
+      if (selectedLayer?.name === 'Клумбы' && Array.isArray(variety_ids)) {
+          const objectId = savedObject.id;
+
+          const { error: deleteError } = await supabase.from('flowerbed_composition').delete().eq('flowerbed_id', objectId);
+
+          if (deleteError) {
+              console.error('Ошибка обновления состава клумбы (удаление):', deleteError);
+              alert('Произошла ошибка при обновлении состава клумбы. Основные данные сохранены.');
+          } else if (variety_ids.length > 0) {
+              const compositionToInsert = variety_ids.map(id => ({ flowerbed_id: objectId, flower_variety_id: id }));
+              const { error: insertError } = await supabase.from('flowerbed_composition').insert(compositionToInsert);
+              if (insertError) {
+                  console.error('Ошибка обновления состава клумбы (вставка):', insertError);
+                  alert('Не удалось сохранить новый состав клумбы. Основные данные были сохранены.');
+              }
+          }
+      }
+
+      alert(isEditing ? 'Объект успешно обновлен!' : 'Объект успешно создан!');
+      setIsModalOpen(false);
+      setCurrentObject(null);
+      cancelDrawing();
+      loadMapObjects();
     }
-  }
+  };
+
+  // Helper function to create colored SVG markers
+  const createColoredMarkerIcon = (color) => {
+    const L = require('leaflet');
+    const markerHtml = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28px" height="28px" fill="${color}">
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/>
+      </svg>
+    `;
+
+    return L.divIcon({
+      html: markerHtml,
+      className: '', // important to avoid default styling
+      iconSize: [28, 28],
+      iconAnchor: [14, 28], // Point of the icon that corresponds to marker's location
+      popupAnchor: [0, -28]  // Point from which the popup should open
+    });
+  };
+
+  const handleObjectClick = (obj) => {
+    if (drawingMode || isObserver) {
+      // В режиме наблюдателя или рисования ничего не делаем
+      return;
+    }
+
+    const L = require('leaflet');
+    let calculatedMetrics = {};
+
+    if (obj.geometry) {
+      if (obj.object_type === 'polygon') {
+        const latLngs = obj.geometry.coordinates[0].map(c => [c[1], c[0]]);
+        const area = L.GeometryUtil.geodesicArea(latLngs);
+        calculatedMetrics.area = `${area.toFixed(2)} м²`;
+      } else if (obj.object_type === 'line') {
+        let length = 0;
+        const latLngs = obj.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
+        if (latLngs.length > 1) {
+          for (let i = 0; i < latLngs.length - 1; i++) {
+            length += map.distance(latLngs[i], latLngs[i + 1]);
+          }
+        }
+        calculatedMetrics.length = `${length.toFixed(2)} м`;
+      }
+
+      let firstCoord = obj.object_type === 'marker'
+        ? obj.geometry.coordinates
+        : (obj.geometry.coordinates[0][0] || obj.geometry.coordinates[0]);
+      calculatedMetrics.coordinates = `${firstCoord[1].toFixed(5)}, ${firstCoord[0].toFixed(5)}`;
+    }
+
+    const objectToEdit = {
+      ...obj,
+      calculatedMetrics,
+    };
+    
+    setCurrentObject(objectToEdit);
+    setIsModalOpen(true);
+  };
 
   const loadMapObjects = async () => {
-    const { data, error } = await supabase
-      .from('polygons')
-      .select(`*, layers (name, color)`)
-    
-    if (error) {
-      console.error('Ошибка загрузки объектов:', error)
-      return
+    const [{ data: objects, error: objectsError }, { data: compositions, error: compositionsError }] = await Promise.all([
+        supabase.from('map_objects').select(`*, layers (name, color)`),
+        supabase.from('flowerbed_composition').select('flowerbed_id, flower_variety_id')
+    ]);
+
+    if (objectsError) {
+      console.error("Ошибка загрузки объектов:", objectsError);
+      return;
+    }
+    if (compositionsError) {
+      console.error("Ошибка загрузки состава клумб:", compositionsError);
+      // Non-fatal, continue execution
     }
 
-    if (data && map) {
+    const compositionMap = (compositions || []).reduce((acc, item) => {
+        if (!acc[item.flowerbed_id]) {
+            acc[item.flowerbed_id] = [];
+        }
+        acc[item.flowerbed_id].push(item.flower_variety_id);
+        return acc;
+    }, {});
+
+    if (objects && map) {
       mapObjects.forEach(obj => {
-        if (obj.leafletLayer) {
-          map.removeLayer(obj.leafletLayer)
+        if (obj.leafletLayer) map.removeLayer(obj.leafletLayer);
+      });
+
+      const L = require('leaflet');
+      const newMapObjects = objects.map(obj => {
+        if (obj.layers?.name === 'Клумбы') {
+            obj.properties.variety_ids = compositionMap[obj.id] || [];
         }
-      })
 
-      const L = require('leaflet')
-      const newMapObjects = data.map(obj => {
-        try {
-          if (obj.geometry && obj.geometry.type && obj.geometry.coordinates) {
-            let leafletLayer
-            let popupContent = `<strong>${obj.name}</strong><br>${obj.description || ''}`
+        let leafletLayer;
+        const color = obj.layers?.color || '#3388ff';
+        const popupContent = `<strong>${obj.properties.name || 'Без названия'}</strong><br>${obj.properties.description || ''}`;
 
-            switch (obj.geometry.type) {
-              case 'Polygon':
-                if (!obj.geometry.coordinates || !obj.geometry.coordinates[0] || obj.geometry.coordinates[0].length < 3) {
-                  console.warn(`Некорректные координаты для полигона: ${obj.name}`)
-                  return obj
-                }
-                const coords = obj.geometry.coordinates[0].map(coord => [coord[1], coord[0]])
-                popupContent += `<br>Площадь: ${obj.square ? (obj.square / 10000).toFixed(2) + ' га' : 'не рассчитана'}`
-                leafletLayer = L.polygon(coords, {
-                  color: obj.layers?.color || '#4CAF50',
-                  fillColor: obj.layers?.color || '#4CAF50',
-                  fillOpacity: 0.3,
-                  weight: 2
-                }).bindPopup(popupContent)
-                break
-
-              case 'Point':
-                const pointCoords = [obj.geometry.coordinates[1], obj.geometry.coordinates[0]]
-                leafletLayer = L.marker(pointCoords).bindPopup(popupContent)
-                break
-
-              default:
-                console.warn(`Неподдерживаемый тип геометрии: ${obj.geometry.type} для объекта: ${obj.name}`)
-                return obj
-            }
-
-            if (layerVisibility[obj.layer_id] !== false) {
-              leafletLayer.addTo(map)
-            }
-
-            return { ...obj, leafletLayer }
+        if (obj.geometry) {
+          switch (obj.object_type) {
+            case 'marker':
+              leafletLayer = L.marker([...obj.geometry.coordinates].reverse(), { icon: createColoredMarkerIcon(color) });
+              break;
+            case 'line':
+              leafletLayer = L.polyline(obj.geometry.coordinates.map(c => [c[1], c[0]]), { color });
+              break;
+            case 'polygon':
+              leafletLayer = L.polygon(obj.geometry.coordinates[0].map(c => [c[1], c[0]]), { color, fillColor: color, fillOpacity: 0.5 });
+              break;
+            default:
+              console.warn(`Неизвестный тип объекта: ${obj.object_type}`);
           }
-        } catch (e) {
-          console.error(`Ошибка обработки объекта ${obj.id} (${obj.name}):`, e)
+           if(leafletLayer) {
+              leafletLayer.bindPopup(popupContent).on('click', () => handleObjectClick(obj));
+           }
         }
-        return obj
-      })
 
-      setMapObjects(newMapObjects.filter(Boolean))
+        if (leafletLayer && layerVisibility[obj.layer_id] !== false) {
+          leafletLayer.addTo(map);
+        }
+
+        return { ...obj, leafletLayer };
+      });
+
+      setMapObjects(newMapObjects);
     }
-  }
+  };
+
+  const deleteObject = async () => {
+    if (!currentObject || !currentObject.id) {
+      alert('Невозможно удалить объект без ID.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('map_objects')
+      .delete()
+      .eq('id', currentObject.id);
+
+    if (error) {
+      console.error('Ошибка удаления объекта:', error);
+      alert(`Не удалось удалить объект: ${error.message}`);
+    } else {
+      alert('Объект успешно удален!');
+      setIsModalOpen(false);
+      setCurrentObject(null);
+      loadMapObjects();
+    }
+  };
 
   const createLayer = () => {
     setShowCreateLayerModal(true)
@@ -471,37 +673,26 @@ const MapWithDrawing = ({ onBack }) => {
   }
 
   const deleteLayer = async (layer) => {
-    if (!confirm(`Удалить слой "${layer.name}"? Все связанные объекты также будут удалены.`)) {
-      return
+    if (!confirm(`Удалить слой "${layer.name}"? Все ОБЪЕКТЫ этого слоя тоже будут удалены.`)) {
+      return;
     }
 
-    // Сначала удаляем связанные объекты
-    const { error: objectsError } = await supabase
-      .from('polygons')
-      .delete()
-      .eq('layer_id', layer.id)
-
-    if (objectsError) {
-      console.error('Ошибка удаления объектов слоя:', objectsError)
-      alert('Ошибка при удалении объектов, принадлежащих слою. Слой не будет удалён.')
-      return
-    }
-
-    // Затем удаляем сам слой
-    const { error: layerError } = await supabase
+    // Благодаря "ON DELETE CASCADE" в базе данных, нам нужно удалить только слой.
+    // Связанные объекты в 'map_objects' удалятся автоматически.
+    const { error } = await supabase
       .from('layers')
       .delete()
-      .eq('id', layer.id)
+      .eq('id', layer.id);
 
-    if (layerError) {
-      console.error('Ошибка удаления слоя:', layerError)
-      alert('Ошибка удаления слоя')
+    if (error) {
+      console.error('Ошибка удаления слоя:', error);
+      alert(`Не удалось удалить слой: ${error.message}`);
     } else {
-      alert('Слой и все связанные объекты успешно удалены')
-      loadLayers()
-      loadMapObjects()
+      alert('Слой и все связанные объекты успешно удалены');
+      loadLayers();
+      loadMapObjects(); // Перезагружаем объекты, чтобы они исчезли с карты
     }
-  }
+  };
 
   const toggleLayerVisibility = (layerId) => {
     setLayerVisibility(prev => ({
@@ -582,6 +773,26 @@ const MapWithDrawing = ({ onBack }) => {
           }}></div>
         </div>
 
+        {/* Инструменты */}
+        <div style={{ marginBottom: '15px' }}>
+          <h3 style={{
+            fontSize: '16px',
+            color: '#333',
+            marginBottom: '10px',
+            fontWeight: '600'
+          }}>
+            Инструменты
+          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-around', gap: '8px' }}>
+            <button onClick={() => selectTool('marker')} style={drawingMode === 'marker' ? { border: '2px solid #2196F3' } : {}} disabled={isObserver}>Маркер</button>
+            <button onClick={() => selectTool('line')} style={drawingMode === 'line' ? { border: '2px solid #2196F3' } : {}} disabled={isObserver}>Линия</button>
+            <button onClick={() => selectTool('polygon')} style={drawingMode === 'polygon' ? { border: '2px solid #2196F3' } : {}} disabled={isObserver}>Полигон</button>
+          </div>
+          {drawingMode && (
+            <button onClick={() => selectTool(null)} style={{ width: '100%', marginTop: '10px' }}>Отменить</button>
+          )}
+        </div>
+        <div style={{ height: '1px', background: '#e0e0e0', margin: '15px 0' }}></div>
 
         {/* КОМПАКТНЫЕ СЛОИ */}
         <div style={{ flex: 1 }}>
@@ -601,8 +812,9 @@ const MapWithDrawing = ({ onBack }) => {
             </h3>
             <button 
               onClick={createLayer}
+              disabled={isObserver}
               style={{
-                background: '#4A5D23',
+                backgroundColor: isObserver ? '#ccc' : '#4A5D23',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
@@ -638,7 +850,6 @@ const MapWithDrawing = ({ onBack }) => {
                   cursor: 'grab'
                 }}
               >
-                {/* Иконка перетаскивания */}
                 <div style={{ 
                   marginRight: '6px', 
                   color: '#ccc',
@@ -647,16 +858,16 @@ const MapWithDrawing = ({ onBack }) => {
                 }}>
                   ⋮⋮
                 </div>
-
                 <button
                   onClick={() => deleteLayer(layer)}
+                  disabled={isObserver}
                   style={{
                     background: 'none',
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor: isObserver ? 'not-allowed' : 'pointer',
                     padding: '2px',
                     marginRight: '6px',
-                    color: '#666'
+                    color: isObserver ? '#ccc' : '#666'
                   }}
                   title="Удалить слой"
                 >
@@ -664,16 +875,16 @@ const MapWithDrawing = ({ onBack }) => {
                     <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
                   </svg>
                 </button>
-
                 <button
                   onClick={() => editLayer(layer)}
+                  disabled={isObserver}
                   style={{
                     background: 'none',
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor: isObserver ? 'not-allowed' : 'pointer',
                     padding: '2px',
                     marginRight: '8px',
-                    color: '#666'
+                    color: isObserver ? '#ccc' : '#666'
                   }}
                   title="Редактировать слой"
                 >
@@ -681,7 +892,6 @@ const MapWithDrawing = ({ onBack }) => {
                     <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
                   </svg>
                 </button>
-
                 <div 
                   style={{
                     width: '12px',
@@ -691,10 +901,7 @@ const MapWithDrawing = ({ onBack }) => {
                     marginRight: '8px'
                   }}
                 ></div>
-
                 <span style={{ flex: 1, color: '#333' }}>{layer.name}</span>
-
-                {/* Switch видимости */}
                 <label style={{ 
                   position: 'relative', 
                   display: 'inline-block', 
@@ -812,124 +1019,19 @@ const MapWithDrawing = ({ onBack }) => {
         />
       </div>
 
-      {/* Все модальные окна остаются такими же... */}
-      {showModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 2000
-        }}>
-          <div style={{
-            background: 'white',
-            padding: '25px',
-            borderRadius: '12px',
-            minWidth: '400px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
-          }}>
-            <h3 style={{ margin: '0 0 20px 0' }}>Карточка полигона</h3>
-            
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Название*:
-              </label>
-              <input
-                type="text"
-                value={objectData.name}
-                onChange={(e) => setObjectData({...objectData, name: e.target.value})}
-                style={{ 
-                  width: '100%', 
-                  padding: '8px', 
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-                placeholder="Введите название объекта"
-              />
-            </div>
-
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Описание:
-              </label>
-              <textarea
-                value={objectData.description}
-                onChange={(e) => setObjectData({...objectData, description: e.target.value})}
-                style={{ 
-                  width: '100%', 
-                  padding: '8px', 
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  height: '80px',
-                  resize: 'vertical'
-                }}
-                placeholder="Дополнительное описание (необязательно)"
-              />
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Слой*:
-              </label>
-              <select 
-                value={objectData.layerId || ''}
-                onChange={(e) => setObjectData({...objectData, layerId: e.target.value})}
-                style={{ 
-                  width: '100%', 
-                  padding: '8px', 
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-              >
-                <option value="">Выберите слой...</option>
-                {layers.map(layer => (
-                  <option key={layer.id} value={layer.id}>{layer.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button 
-                onClick={saveObject}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  backgroundColor: '#4CAF50',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Сохранить
-              </button>
-              <button 
-                onClick={() => setShowModal(false)}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  backgroundColor: '#757575',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Отмена
-              </button>
-            </div>
-          </div>
-        </div>
+      {isModalOpen && (
+        <ObjectModal
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false);
+            setCurrentObject(null);
+            cancelDrawing(); // Сбрасываем рисование при отмене
+          }}
+          onSave={saveObject}
+          onDelete={deleteObject}
+          objectData={currentObject}
+          layers={layers}
+        />
       )}
 
       {showCreateLayerModal && (
