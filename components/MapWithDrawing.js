@@ -11,7 +11,7 @@ const MapWithDrawing = ({ onBack }) => {
   const [currentPolygon, setCurrentPolygon] = useState(null)
   const [drawingPoints, setDrawingPoints] = useState([])
   const [showModal, setShowModal] = useState(false)
-  const [polygons, setPolygons] = useState([])
+  const [mapObjects, setMapObjects] = useState([])
   const [mapMode, setMapMode] = useState('scheme')
   const [currentTileLayer, setCurrentTileLayer] = useState(null)
   const [showCreateLayerModal, setShowCreateLayerModal] = useState(false)
@@ -19,7 +19,7 @@ const MapWithDrawing = ({ onBack }) => {
   const [editingLayer, setEditingLayer] = useState(null)
   const [layerVisibility, setLayerVisibility] = useState({})
   const [draggedLayer, setDraggedLayer] = useState(null)
-  const [polygonData, setPolygonData] = useState({
+  const [objectData, setObjectData] = useState({
     name: '',
     description: '',
     layerId: ''
@@ -99,13 +99,13 @@ const MapWithDrawing = ({ onBack }) => {
 
   useEffect(() => {
     if (map) {
-      loadPolygons()
+      loadMapObjects()
     }
   }, [map])
 
   useEffect(() => {
-    updatePolygonVisibility()
-  }, [layerVisibility, polygons])
+    updateObjectVisibility()
+  }, [layerVisibility, mapObjects])
 
   const switchMapMode = (mode) => {
     if (!map || !currentTileLayer) return
@@ -254,16 +254,16 @@ const MapWithDrawing = ({ onBack }) => {
     setCurrentPolygon(polygon)
   }
 
-  const updatePolygonVisibility = () => {
-    if (!map || !polygons.length) return
+  const updateObjectVisibility = () => {
+    if (!map || !mapObjects.length) return
 
-    polygons.forEach(polygon => {
-      if (polygon.leafletLayer) {
-        const isVisible = layerVisibility[polygon.layer_id]
-        if (isVisible && !map.hasLayer(polygon.leafletLayer)) {
-          map.addLayer(polygon.leafletLayer)
-        } else if (!isVisible && map.hasLayer(polygon.leafletLayer)) {
-          map.removeLayer(polygon.leafletLayer)
+    mapObjects.forEach(obj => {
+      if (obj.leafletLayer) {
+        const isVisible = layerVisibility[obj.layer_id]
+        if (isVisible && !map.hasLayer(obj.leafletLayer)) {
+          map.addLayer(obj.leafletLayer)
+        } else if (!isVisible && map.hasLayer(obj.leafletLayer)) {
+          map.removeLayer(obj.leafletLayer)
         }
       }
     })
@@ -300,13 +300,13 @@ const MapWithDrawing = ({ onBack }) => {
     setShowModal(true)
   }
 
-  const savePolygon = async () => {
-    if (!polygonData.name.trim()) {
+  const saveObject = async () => {
+    if (!objectData.name.trim()) {
       alert('Введите название полигона')
       return
     }
 
-    if (!polygonData.layerId) {
+    if (!objectData.layerId) {
       alert('Выберите слой для полигона')
       return
     }
@@ -320,9 +320,9 @@ const MapWithDrawing = ({ onBack }) => {
     const { data, error } = await supabase
       .from('polygons')
       .insert({
-        name: polygonData.name,
-        description: polygonData.description,
-        layer_id: polygonData.layerId,
+        name: objectData.name,
+        description: objectData.description,
+        layer_id: objectData.layerId,
         geometry: geoJson
       })
 
@@ -332,54 +332,79 @@ const MapWithDrawing = ({ onBack }) => {
     } else {
       alert('Полигон успешно сохранен')
       setShowModal(false)
-      setPolygonData({ name: '', description: '', layerId: '' })
+      setObjectData({ name: '', description: '', layerId: '' })
       setDrawingPoints([])
       if (currentPolygon) {
         map.removeLayer(currentPolygon)
         setCurrentPolygon(null)
       }
-      loadPolygons()
+      loadMapObjects()
     }
   }
 
-  const loadPolygons = async () => {
+  const loadMapObjects = async () => {
     const { data, error } = await supabase
       .from('polygons')
       .select(`*, layers (name, color)`)
     
+    if (error) {
+      console.error('Ошибка загрузки объектов:', error)
+      return
+    }
+
     if (data && map) {
-      polygons.forEach(polygon => {
-        if (polygon.leafletLayer) {
-          map.removeLayer(polygon.leafletLayer)
+      mapObjects.forEach(obj => {
+        if (obj.leafletLayer) {
+          map.removeLayer(obj.leafletLayer)
         }
       })
 
       const L = require('leaflet')
-      const newPolygons = data.map(polygon => {
-        if (polygon.geometry && polygon.geometry.coordinates) {
-          const coords = polygon.geometry.coordinates[0].map(coord => [coord[1], coord[0]])
-          
-          const leafletLayer = L.polygon(coords, {
-            color: polygon.layers?.color || '#4CAF50',
-            fillColor: polygon.layers?.color || '#4CAF50',
-            fillOpacity: 0.3,
-            weight: 2
-          }).bindPopup(`
-            <strong>${polygon.name}</strong><br>
-            ${polygon.description || ''}<br>
-            Площадь: ${polygon.square ? (polygon.square / 10000).toFixed(2) + ' га' : 'не рассчитана'}
-          `)
+      const newMapObjects = data.map(obj => {
+        try {
+          if (obj.geometry && obj.geometry.type && obj.geometry.coordinates) {
+            let leafletLayer
+            let popupContent = `<strong>${obj.name}</strong><br>${obj.description || ''}`
 
-          if (layerVisibility[polygon.layer_id] !== false) {
-            leafletLayer.addTo(map)
+            switch (obj.geometry.type) {
+              case 'Polygon':
+                if (!obj.geometry.coordinates || !obj.geometry.coordinates[0] || obj.geometry.coordinates[0].length < 3) {
+                  console.warn(`Некорректные координаты для полигона: ${obj.name}`)
+                  return obj
+                }
+                const coords = obj.geometry.coordinates[0].map(coord => [coord[1], coord[0]])
+                popupContent += `<br>Площадь: ${obj.square ? (obj.square / 10000).toFixed(2) + ' га' : 'не рассчитана'}`
+                leafletLayer = L.polygon(coords, {
+                  color: obj.layers?.color || '#4CAF50',
+                  fillColor: obj.layers?.color || '#4CAF50',
+                  fillOpacity: 0.3,
+                  weight: 2
+                }).bindPopup(popupContent)
+                break
+
+              case 'Point':
+                const pointCoords = [obj.geometry.coordinates[1], obj.geometry.coordinates[0]]
+                leafletLayer = L.marker(pointCoords).bindPopup(popupContent)
+                break
+
+              default:
+                console.warn(`Неподдерживаемый тип геометрии: ${obj.geometry.type} для объекта: ${obj.name}`)
+                return obj
+            }
+
+            if (layerVisibility[obj.layer_id] !== false) {
+              leafletLayer.addTo(map)
+            }
+
+            return { ...obj, leafletLayer }
           }
-
-          return { ...polygon, leafletLayer }
+        } catch (e) {
+          console.error(`Ошибка обработки объекта ${obj.id} (${obj.name}):`, e)
         }
-        return polygon
+        return obj
       })
 
-      setPolygons(newPolygons)
+      setMapObjects(newMapObjects.filter(Boolean))
     }
   }
 
@@ -440,7 +465,7 @@ const MapWithDrawing = ({ onBack }) => {
       setEditingLayer(null)
       setNewLayerData({ name: '', color: '#4CAF50' })
       loadLayers()
-      loadPolygons()
+      loadMapObjects()
     }
   }
 
@@ -473,7 +498,7 @@ const MapWithDrawing = ({ onBack }) => {
     } else {
       alert('Слой и все связанные полигоны успешно удалены')
       loadLayers()
-      loadPolygons()
+      loadMapObjects()
     }
   }
 
@@ -958,8 +983,8 @@ const MapWithDrawing = ({ onBack }) => {
               </label>
               <input
                 type="text"
-                value={polygonData.name}
-                onChange={(e) => setPolygonData({...polygonData, name: e.target.value})}
+                value={objectData.name}
+                onChange={(e) => setObjectData({...objectData, name: e.target.value})}
                 style={{ 
                   width: '100%', 
                   padding: '8px', 
@@ -976,8 +1001,8 @@ const MapWithDrawing = ({ onBack }) => {
                 Описание:
               </label>
               <textarea
-                value={polygonData.description}
-                onChange={(e) => setPolygonData({...polygonData, description: e.target.value})}
+                value={objectData.description}
+                onChange={(e) => setObjectData({...objectData, description: e.target.value})}
                 style={{ 
                   width: '100%', 
                   padding: '8px', 
@@ -996,8 +1021,8 @@ const MapWithDrawing = ({ onBack }) => {
                 Слой*:
               </label>
               <select 
-                value={polygonData.layerId || ''}
-                onChange={(e) => setPolygonData({...polygonData, layerId: e.target.value})}
+                value={objectData.layerId || ''}
+                onChange={(e) => setObjectData({...objectData, layerId: e.target.value})}
                 style={{ 
                   width: '100%', 
                   padding: '8px', 
@@ -1015,7 +1040,7 @@ const MapWithDrawing = ({ onBack }) => {
 
             <div style={{ display: 'flex', gap: '10px' }}>
               <button 
-                onClick={savePolygon}
+                onClick={saveObject}
                 style={{
                   flex: 1,
                   padding: '10px',
