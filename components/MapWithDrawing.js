@@ -2,15 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import ObjectModal from './ObjectModal'; // Импортируем универсальное модальное окно
+import ObjectModal from './ObjectModal';
+import { FeatureGroup } from 'react-leaflet';
+import { EditControl } from 'react-leaflet-draw';
+import 'leaflet-draw/dist/leaflet.draw.css';
+
 
 const MapWithDrawing = ({ onBack, isObserver }) => {
   const mapRef = useRef(null);
   const [map, setMap] = useState(null);
   const [layers, setLayers] = useState([]);
-  const [drawingMode, setDrawingMode] = useState(null); // 'marker', 'line', 'polygon'
-  const [previewShape, setPreviewShape] = useState(null);
-  const [drawingPoints, setDrawingPoints] = useState([]);
 
   // Состояния для универсального модального окна
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -74,7 +75,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
         zoomControl: true,
         dragging: true,
         touchZoom: true,
-        doubleClickZoom: false, // Отключаем стандартный зум по двойному клику
+        doubleClickZoom: false,
         scrollWheelZoom: true,
         boxZoom: true,
         keyboard: true,
@@ -87,8 +88,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       }).addTo(mapInstance)
 
       setCurrentTileLayer(tileLayer)
-      mapInstance.on('click', handleMapClick)
-      mapInstance.on('dblclick', handleMapDoubleClick) // Добавляем обработчик двойного клика
       setMap(mapInstance)
 
       setTimeout(() => mapInstance.invalidateSize(), 100)
@@ -210,93 +209,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
     setDraggedLayer(null)
   }
 
-  const handleMapDoubleClick = (e) => {
-    if (drawingMode === 'line' && drawingPoints.length >= 2) {
-      finishDrawing();
-    }
-  }
-
-  const handleMapClick = (e) => {
-    if (!drawingMode || isObserver) return;
-
-    const L = require('leaflet');
-    const point = [e.latlng.lat, e.latlng.lng];
-
-    switch (drawingMode) {
-      case 'marker':
-        setCurrentObject({
-          geometry: {
-            type: 'Point',
-            coordinates: [point[1], point[0]] // GeoJSON format [lng, lat]
-          },
-          object_type: 'marker',
-          properties: {},
-        });
-        setIsModalOpen(true);
-        // We don't need to set drawingPoints for a single marker
-        // and cancelDrawing will be called after saving.
-        break;
-
-      case 'polygon':
-        const newPolygonPoints = [...drawingPoints, point];
-        if (drawingPoints.length >= 2) {
-          const firstPoint = drawingPoints[0];
-          const distance = map.distance(e.latlng, L.latLng(firstPoint));
-
-          if (distance < 15) { // 15-метровый допуск для замыкания
-            finishDrawing();
-            return;
-          }
-        }
-        setDrawingPoints(newPolygonPoints);
-        updatePreviewShape(newPolygonPoints, 'polygon');
-        break;
-
-      case 'line':
-        const newLinePoints = [...drawingPoints, point];
-        setDrawingPoints(newLinePoints);
-        updatePreviewShape(newLinePoints, 'line');
-        break;
-    }
-  };
-
-  const updatePreviewShape = (points, type) => {
-    if (!map) return;
-    const L = require('leaflet');
-
-    // Remove the previous preview shape from the map
-    if (previewShape) {
-      map.removeLayer(previewShape);
-    }
-    
-    let shape;
-
-    // For lines and polygons, show a marker on the first click for better feedback
-    if ((type === 'polygon' || type === 'line') && points.length === 1) {
-        shape = L.circleMarker(points[0], { radius: 5, color: '#2196F3', fillOpacity: 1 });
-    } else if (type === 'polygon' && points.length >= 2) {
-      shape = L.polygon(points, {
-        color: '#2196F3',
-        fillColor: '#2196F3',
-        fillOpacity: 0.3,
-        weight: 2
-      });
-    } else if (type === 'line' && points.length >= 2) {
-      shape = L.polyline(points, {
-        color: '#2196F3',
-        weight: 4
-      });
-    }
-
-    // If a shape was created, add it to the map and update the state
-    if (shape) {
-      shape.addTo(map);
-      setPreviewShape(shape);
-    } else {
-      setPreviewShape(null);
-    }
-  }
-
   const updateObjectVisibility = () => {
     if (!map || !mapObjects.length) return;
 
@@ -310,82 +222,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
         }
       }
     });
-  };
-
-  const selectTool = (tool) => {
-    if (drawingMode === tool) {
-      cancelDrawing();
-    } else {
-      if (layers.length === 0) {
-        alert('Сначала создайте хотя бы один слой');
-        return;
-      }
-      setDrawingMode(tool);
-      setDrawingPoints([]);
-      if (previewShape) {
-        map.removeLayer(previewShape);
-        setPreviewShape(null);
-      }
-      if (map && map.getContainer()) {
-        map.getContainer().style.cursor = tool ? 'crosshair' : '';
-      }
-    }
-  };
-
-  const cancelDrawing = () => {
-    setDrawingMode(null);
-    setDrawingPoints([]);
-    if (previewShape) {
-      map.removeLayer(previewShape);
-      setPreviewShape(null);
-    }
-    if (map && map.getContainer()) {
-      map.getContainer().style.cursor = '';
-    }
-  };
-
-  const finishDrawing = () => {
-    // Validation for lines and polygons
-    if (drawingMode === 'polygon' && drawingPoints.length < 3) {
-      alert('Полигон должен содержать минимум 3 точки');
-      cancelDrawing();
-      return;
-    }
-    if (drawingMode === 'line' && drawingPoints.length < 2) {
-      alert('Линия должна содержать минимум 2 точки');
-      cancelDrawing();
-      return;
-    }
-
-    let geometry;
-    const object_type = drawingMode;
-
-    switch (drawingMode) {
-      case 'line':
-        geometry = {
-          type: 'LineString',
-          coordinates: drawingPoints.map(p => [p[1], p[0]])
-        };
-        break;
-      case 'polygon':
-        const closedPoints = [...drawingPoints, drawingPoints[0]];
-        geometry = {
-          type: 'Polygon',
-          coordinates: [closedPoints.map(p => [p[1], p[0]])]
-        };
-        break;
-      default:
-        console.error("finishDrawing called with invalid drawing mode:", drawingMode);
-        cancelDrawing();
-        return;
-    }
-
-    setCurrentObject({
-      geometry,
-      object_type,
-      properties: {},
-    });
-    setIsModalOpen(true);
   };
 
   const saveObject = async (formData) => {
@@ -470,7 +306,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       alert(isEditing ? 'Объект успешно обновлен!' : 'Объект успешно создан!');
       setIsModalOpen(false);
       setCurrentObject(null);
-      cancelDrawing();
       loadMapObjects();
     }
   };
@@ -494,10 +329,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   };
 
   const handleObjectClick = (obj) => {
-    if (drawingMode || isObserver) {
-      // В режиме наблюдателя или рисования ничего не делаем
-      return;
-    }
+    if (isObserver) return;
 
     const L = require('leaflet');
     let calculatedMetrics = {};
@@ -528,7 +360,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       ...obj,
       calculatedMetrics,
     };
-    
+
     setCurrentObject(objectToEdit);
     setIsModalOpen(true);
   };
@@ -599,6 +431,30 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
 
       setMapObjects(newMapObjects);
     }
+  };
+
+  const _onCreated = (e) => {
+    if (layers.length === 0) {
+        alert('Пожалуйста, сначала создайте хотя бы один слой.');
+        // Leaflet.Draw doesn't have a simple way to cancel the creation event,
+        // so we just return without opening the modal. The drawn layer will be discarded.
+        return;
+    }
+
+    const { layerType, layer } = e;
+    const geoJSON = layer.toGeoJSON();
+
+    let object_type = layerType;
+    if(layerType === 'polyline') {
+        object_type = 'line';
+    }
+
+    setCurrentObject({
+      geometry: geoJSON.geometry,
+      object_type: object_type,
+      properties: {},
+    });
+    setIsModalOpen(true);
   };
 
   const deleteObject = async () => {
@@ -789,29 +645,10 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
           }}></div>
         </div>
 
-        {/* Инструменты */}
-        <div style={{ marginBottom: '15px' }}>
-          <h3 style={{
-            fontSize: '16px',
-            color: '#333',
-            marginBottom: '10px',
-            fontWeight: '600'
-          }}>
-            Инструменты
-          </h3>
-          <div style={{ display: 'flex', justifyContent: 'space-around', gap: '8px' }}>
-            <button onClick={() => selectTool('marker')} style={drawingMode === 'marker' ? { border: '2px solid #2196F3' } : {}} disabled={isObserver}>Маркер</button>
-            <button onClick={() => selectTool('line')} style={drawingMode === 'line' ? { border: '2px solid #2196F3' } : {}} disabled={isObserver}>Линия</button>
-            <button onClick={() => selectTool('polygon')} style={drawingMode === 'polygon' ? { border: '2px solid #2196F3' } : {}} disabled={isObserver}>Полигон</button>
-          </div>
-          {drawingMode && (
-            <button onClick={() => selectTool(null)} style={{ width: '100%', marginTop: '10px' }}>Отменить</button>
-          )}
-        </div>
-        <div style={{ height: '1px', background: '#e0e0e0', margin: '15px 0' }}></div>
+        {/* Панель инструментов Leaflet.Draw будет добавлена на карту */}
 
         {/* КОМПАКТНЫЕ СЛОИ */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -1032,7 +869,28 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
             top: 0,
             left: 0
           }} 
-        />
+        >
+          <FeatureGroup>
+            {!isObserver && (
+              <EditControl
+                position="topright"
+                onCreated={_onCreated}
+                draw={{
+                  rectangle: false,
+                  circle: false,
+                  circlemarker: false,
+                  polygon: {
+                    allowIntersection: false,
+                    drawError: {
+                      color: '#e1e100',
+                      message: '<strong>Ошибка!</strong> Нельзя рисовать самопересекающиеся полигоны!',
+                    },
+                  },
+                }}
+              />
+            )}
+          </FeatureGroup>
+        </div>
       </div>
 
       {isModalOpen && (
@@ -1041,7 +899,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
           onClose={() => {
             setIsModalOpen(false);
             setCurrentObject(null);
-            cancelDrawing(); // Сбрасываем рисование при отмене
           }}
           onSave={saveObject}
           onDelete={deleteObject}
