@@ -42,9 +42,9 @@ const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) =>
                     return null;
                 }
 
-                const color = obj.layers.color || '#3388ff';
+                const color = obj.layers?.color || '#3388ff';
 
-                let details = `Слой: ${obj.layers.name}<br>`;
+                let details = `Слой: ${obj.layers?.name}<br>`;
                 if(obj.area) details += `Площадь: ${obj.area}<br>`;
                 if(obj.length) details += `Длина: ${obj.length}<br>`;
                 if(obj.properties?.age) details += `Возраст: ${obj.properties.age} лет<br>`;
@@ -328,7 +328,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
 
   const loadMapObjects = async () => {
     const [{ data: objects, error: objectsError }, { data: compositions, error: compositionsError }] = await Promise.all([
-        supabase.from('map_objects').select(`*, layers(name, color)`),
+        supabase.from('map_objects').select(`*, layers!inner(name, color)`),
         supabase.from('flowerbed_composition').select('flowerbed_id, flower_variety_id')
     ]);
 
@@ -473,6 +473,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       setEditingLayer(null)
       setNewLayerData({ name: '', color: '#4CAF50' })
       loadLayers()
+      loadMapObjects()
     } else {
       console.error('Не удалось обновить слой, данные не вернулись.')
       alert('Не удалось обновить слой.')
@@ -495,6 +496,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
     } else {
       alert('Слой и все связанные объекты успешно удалены');
       loadLayers();
+      loadMapObjects(); // Force a refresh of map objects
     }
   };
 
