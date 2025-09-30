@@ -11,11 +11,10 @@ const ObjectModal = ({ isOpen, onClose, onSave, onDelete, objectData, layers }) 
     if (objectData) {
       const initialLayerId = objectData.layer_id || (layers && layers.length > 0 ? layers[0].id : '');
       const initialData = {
-        name: '',
-        description: '',
         ...objectData.properties,
+        name: objectData.name || '',
+        description: objectData.description || '',
         layer_id: initialLayerId,
-        // Убедимся, что variety_ids всегда является массивом для мульти-селекта
         variety_ids: Array.isArray(objectData.properties?.variety_ids)
           ? objectData.properties.variety_ids
           : [],

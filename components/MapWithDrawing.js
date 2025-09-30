@@ -43,7 +43,7 @@ const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) =>
                 }
 
                 const color = obj.layers?.color || '#3388ff';
-                const popupContent = `<strong>${obj.properties.name || 'Без названия'}</strong><br>${obj.properties.description || ''}`;
+                const popupContent = `<strong>${obj.name || 'Без названия'}</strong><br>${obj.description || ''}`;
 
                 switch (obj.object_type) {
                     case 'marker':
@@ -219,7 +219,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       return;
     }
 
-    const { layer_id, ...properties } = formData;
+    const { layer_id, name, description, ...properties } = formData;
     const selectedLayer = layers.find(l => l.id === layer_id);
 
     if (selectedLayer) {
@@ -249,12 +249,19 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
         delete properties.variety_ids;
     }
 
+    const dataToSave = {
+        layer_id,
+        name,
+        description,
+        properties
+    };
+
     let result;
     if (isEditing) {
-      result = await supabase.from('map_objects').update({ layer_id, properties }).eq('id', currentObject.id).select().single();
+      result = await supabase.from('map_objects').update(dataToSave).eq('id', currentObject.id).select().single();
     } else {
       const { geometry, object_type } = currentObject;
-      result = await supabase.from('map_objects').insert({ layer_id, object_type, geometry, properties }).select().single();
+      result = await supabase.from('map_objects').insert({ ...dataToSave, object_type, geometry }).select().single();
     }
 
     const { data: savedObject, error } = result;
