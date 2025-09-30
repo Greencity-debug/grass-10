@@ -43,7 +43,13 @@ const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) =>
                 }
 
                 const color = obj.layers?.color || '#3388ff';
-                const popupContent = `<strong>${obj.name || 'Без названия'}</strong><br>${obj.description || ''}`;
+
+                let details = `Слой: ${obj.layers.name}<br>`;
+                if(obj.area) details += `Площадь: ${obj.area}<br>`;
+                if(obj.length) details += `Длина: ${obj.length}<br>`;
+                if(obj.properties?.age) details += `Возраст: ${obj.properties.age} лет<br>`;
+
+                const popupContent = `<strong>${obj.name || 'Без названия'}</strong><br>${details}${obj.description || ''}`;
 
                 switch (obj.object_type) {
                     case 'marker':
@@ -299,42 +305,15 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   };
 
   const handleObjectClick = (obj) => {
-    if (isObserver || !map) return;
-
-    let calculatedMetrics = {};
-
-    if (obj.geometry) {
-      if (obj.object_type === 'polygon') {
-        const latLngs = obj.geometry.coordinates[0].map(c => [c[1], c[0]]);
-        const area = L.GeometryUtil.geodesicArea(latLngs);
-        calculatedMetrics.area = `${area.toFixed(2)} м²`;
-      } else if (obj.object_type === 'line') {
-        let length = 0;
-        const latLngs = obj.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
-        if (latLngs.length > 1) {
-          for (let i = 0; i < latLngs.length - 1; i++) {
-            length += map.distance(latLngs[i], latLngs[i + 1]);
-          }
-        }
-        calculatedMetrics.length = `${length.toFixed(2)} м`;
-      }
-
-      let firstCoord = obj.object_type === 'marker'
-        ? obj.geometry.coordinates
-        : (obj.geometry.coordinates[0][0] || obj.geometry.coordinates[0]);
-      calculatedMetrics.coordinates = `${firstCoord[1].toFixed(5)}, ${firstCoord[0].toFixed(5)}`;
-    }
-
-    const objectToEdit = {
-      ...obj,
-      calculatedMetrics,
-    };
-
-    setCurrentObject(objectToEdit);
+    if (isObserver) return;
+    // All metrics are now pre-calculated in loadMapObjects
+    setCurrentObject(obj);
     setIsModalOpen(true);
   };
 
   const loadMapObjects = async () => {
+    if (!map) return;
+
     const [{ data: objects, error: objectsError }, { data: compositions, error: compositionsError }] = await Promise.all([
         supabase.from('map_objects').select(`*, layers!inner(name, color)`),
         supabase.from('flowerbed_composition').select('flowerbed_id, flower_variety_id')
@@ -360,6 +339,29 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
         if (obj.layers?.name === 'Клумбы') {
             obj.properties.variety_ids = compositionMap[obj.id] || [];
         }
+
+        // Pre-calculate metrics and attach to the object
+        if (obj.geometry) {
+            if (obj.object_type === 'polygon' && (obj.layers.name === 'Газоны' || obj.layers.name === 'Клумбы')) {
+                const latLngs = obj.geometry.coordinates[0].map(c => [c[1], c[0]]);
+                const area = L.GeometryUtil.geodesicArea(latLngs);
+                obj.area = `${area.toFixed(2)} м²`;
+            } else if (obj.object_type === 'line' && obj.layers.name === 'Кустарники') {
+                let length = 0;
+                const latLngs = obj.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
+                if (latLngs.length > 1) {
+                    for (let i = 0; i < latLngs.length - 1; i++) {
+                        length += map.distance(latLngs[i], latLngs[i + 1]);
+                    }
+                }
+                obj.length = `${length.toFixed(2)} м`;
+            }
+             let firstCoord = obj.object_type === 'marker'
+              ? obj.geometry.coordinates
+              : (obj.geometry.coordinates[0][0] || obj.geometry.coordinates[0]);
+            obj.coordinates_str = `${firstCoord[1].toFixed(5)}, ${firstCoord[0].toFixed(5)}`;
+        }
+
         return obj;
     });
 
@@ -669,7 +671,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
             <FeatureGroup>
                 {!isObserver && (
                 <EditControl
-                    position="topright"
+                    position="topleft"
                     onCreated={_onCreated}
                     draw={{
                         rectangle: false,

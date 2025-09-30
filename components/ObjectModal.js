@@ -244,14 +244,17 @@ const ObjectModal = ({ isOpen, onClose, onSave, onDelete, objectData, layers }) 
             {objectData.id && (
               <div style={styles.infoSection}>
                 <p style={styles.infoText}><strong>ID:</strong> {objectData.id}</p>
-                {objectData.calculatedMetrics?.coordinates && (
-                  <p style={styles.infoText}><strong>Координаты:</strong> {objectData.calculatedMetrics.coordinates}</p>
+                {objectData.layers?.name && (
+                   <p style={styles.infoText}><strong>Слой:</strong> {objectData.layers.name}</p>
                 )}
-                {objectData.calculatedMetrics?.area && (
-                  <p style={styles.infoText}><strong>Площадь:</strong> {objectData.calculatedMetrics.area}</p>
+                {objectData.coordinates_str && (
+                  <p style={styles.infoText}><strong>Координаты:</strong> {objectData.coordinates_str}</p>
                 )}
-                {objectData.calculatedMetrics?.length && (
-                  <p style={styles.infoText}><strong>Длина:</strong> {objectData.calculatedMetrics.length}</p>
+                {objectData.area && (
+                  <p style={styles.infoText}><strong>Площадь:</strong> {objectData.area}</p>
+                )}
+                {objectData.length && (
+                  <p style={styles.infoText}><strong>Длина:</strong> {objectData.length}</p>
                 )}
               </div>
             )}
