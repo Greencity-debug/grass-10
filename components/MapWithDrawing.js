@@ -3,156 +3,157 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import ObjectModal from './ObjectModal';
-import { FeatureGroup } from 'react-leaflet';
+import { MapContainer, TileLayer, FeatureGroup, Marker, Popup, Polyline, Polygon, useMap } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
+import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
+import L from 'leaflet';
+
+// Fix for default icon issue with webpack
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
+
+// Helper function to create colored SVG markers
+const createColoredMarkerIcon = (color) => {
+    const markerHtml = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28px" height="28px" fill="${color}">
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/>
+      </svg>
+    `;
+    return L.divIcon({
+      html: markerHtml,
+      className: '',
+      iconSize: [28, 28],
+      iconAnchor: [14, 28],
+      popupAnchor: [0, -28]
+    });
+};
+
+// Component to render map objects declaratively
+const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) => {
+    return (
+        <>
+            {mapObjects.map(obj => {
+                if (!layerVisibility[obj.layer_id]) {
+                    return null;
+                }
+
+                const color = obj.layers?.color || '#3388ff';
+                const popupContent = `<strong>${obj.properties.name || 'Без названия'}</strong><br>${obj.properties.description || ''}`;
+
+                switch (obj.object_type) {
+                    case 'marker':
+                        return (
+                            <Marker
+                                key={obj.id}
+                                position={[...obj.geometry.coordinates].reverse()}
+                                icon={createColoredMarkerIcon(color)}
+                                eventHandlers={{ click: () => handleObjectClick(obj) }}
+                            >
+                                <Popup>{popupContent}</Popup>
+                            </Marker>
+                        );
+                    case 'line':
+                        const linePositions = obj.geometry.coordinates.map(c => [c[1], c[0]]);
+                        return (
+                            <Polyline
+                                key={obj.id}
+                                positions={linePositions}
+                                pathOptions={{ color }}
+                                eventHandlers={{ click: () => handleObjectClick(obj) }}
+                            >
+                                <Popup>{popupContent}</Popup>
+                            </Polyline>
+                        );
+                    case 'polygon':
+                        const polygonPositions = obj.geometry.coordinates[0].map(c => [c[1], c[0]]);
+                        return (
+                            <Polygon
+                                key={obj.id}
+                                positions={polygonPositions}
+                                pathOptions={{ color, fillColor: color, fillOpacity: 0.5 }}
+                                eventHandlers={{ click: () => handleObjectClick(obj) }}
+                            >
+                                <Popup>{popupContent}</Popup>
+                            </Polygon>
+                        );
+                    default:
+                        return null;
+                }
+            })}
+        </>
+    );
+};
+
+// Component to handle map mode switching
+const MapModeSwitcher = ({ mode }) => {
+    const map = useMap();
+    const currentLayer = useRef(null);
+
+    useEffect(() => {
+        if (currentLayer.current) {
+            map.removeLayer(currentLayer.current);
+        }
+
+        let newTileLayer;
+        let url;
+        switch (mode) {
+            case 'satellite':
+                url = 'https://core-sat.maps.yandex.net/tiles?l=sat&v=3.1072.0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU';
+                newTileLayer = L.tileLayer(url, { attribution: '© Яндекс', maxZoom: 19 });
+                break;
+            case 'hybrid':
+                 const satLayer = L.tileLayer('https://core-sat.maps.yandex.net/tiles?l=sat&v=3.1072.0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
+                    attribution: '© Яндекс',
+                    maxZoom: 19
+                 });
+                 const sklLayer = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=skl&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
+                    maxZoom: 19,
+                    opacity: 0.8
+                 });
+                 newTileLayer = L.layerGroup([satLayer, sklLayer]);
+                break;
+            default: // scheme
+                url = 'https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU';
+                newTileLayer = L.tileLayer(url, { attribution: '© Яндекс', maxZoom: 19 });
+        }
+
+        map.addLayer(newTileLayer);
+        currentLayer.current = newTileLayer;
+
+    }, [mode, map]);
+
+    return null;
+};
 
 
 const MapWithDrawing = ({ onBack, isObserver }) => {
-  const mapRef = useRef(null);
-  const [map, setMap] = useState(null);
   const [layers, setLayers] = useState([]);
-
-  // Состояния для универсального модального окна
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentObject, setCurrentObject] = useState(null); // Объект для редактирования/создания
-
-  // Все объекты с карты
+  const [currentObject, setCurrentObject] = useState(null);
   const [mapObjects, setMapObjects] = useState([]);
-
   const [mapMode, setMapMode] = useState('scheme');
-  const [currentTileLayer, setCurrentTileLayer] = useState(null);
   const [showCreateLayerModal, setShowCreateLayerModal] = useState(false);
   const [showEditLayerModal, setShowEditLayerModal] = useState(false);
   const [editingLayer, setEditingLayer] = useState(null);
   const [layerVisibility, setLayerVisibility] = useState({});
   const [draggedLayer, setDraggedLayer] = useState(null);
-  const [newLayerData, setNewLayerData] = useState({
-    name: '',
-    color: '#4CAF50',
-  })
+  const [newLayerData, setNewLayerData] = useState({ name: '', color: '#4CAF50' });
+  const [map, setMap] = useState(null);
 
   useEffect(() => {
-    loadLayers()
-    return () => {
-      if (map) {
-        map.remove()
-        setMap(null)
-      }
-    }
-  }, [])
+    loadLayers();
+  }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (typeof window !== 'undefined' && mapRef.current && !map) {
-        initializeMap()
-      }
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [])
-
-  const initializeMap = () => {
-    const L = require('leaflet')
-    
-    if (mapRef.current) {
-      mapRef.current.innerHTML = ''
-      if (mapRef.current._leaflet_id) {
-        delete mapRef.current._leaflet_id
-      }
-    }
-    
-    delete L.Icon.Default.prototype._getIconUrl
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-    })
-    
-    try {
-      const mapInstance = L.map(mapRef.current, {
-        center: [55.709362, 52.308385],
-        zoom: 15,
-        zoomControl: true,
-        dragging: true,
-        touchZoom: true,
-        doubleClickZoom: false,
-        scrollWheelZoom: true,
-        boxZoom: true,
-        keyboard: true,
-        attributionControl: true
-      })
-      
-      const tileLayer = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
-        attribution: '© Яндекс',
-        maxZoom: 19
-      }).addTo(mapInstance)
-
-      setCurrentTileLayer(tileLayer)
-      setMap(mapInstance)
-
-      setTimeout(() => mapInstance.invalidateSize(), 100)
-      setTimeout(() => mapInstance.invalidateSize(), 300)
-      setTimeout(() => mapInstance.invalidateSize(), 1000)
-      
-    } catch (error) {
-      console.error('Ошибка инициализации карты:', error)
-    }
-  }
-
-  useEffect(() => {
-    if (map) {
+    if (layers.length > 0) {
       loadMapObjects();
     }
-  }, [map]);
-
-  useEffect(() => {
-    updateObjectVisibility();
-  }, [layerVisibility, mapObjects]);
-
-  const switchMapMode = (mode) => {
-    if (!map || !currentTileLayer) return
-    
-    const L = require('leaflet')
-    map.removeLayer(currentTileLayer)
-    
-    let newTileLayer
-    
-    switch (mode) {
-      case 'scheme':
-        newTileLayer = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
-          attribution: '© Яндекс',
-          maxZoom: 19
-        })
-        break
-      case 'satellite':
-        newTileLayer = L.tileLayer('https://core-sat.maps.yandex.net/tiles?l=sat&v=3.1072.0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
-          attribution: '© Яндекс',
-          maxZoom: 19
-        })
-        break
-      case 'hybrid':
-        newTileLayer = L.layerGroup([
-          L.tileLayer('https://core-sat.maps.yandex.net/tiles?l=sat&v=3.1072.0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
-            attribution: '© Яндекс',
-            maxZoom: 19
-          }),
-          L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=skl&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
-            maxZoom: 19,
-            opacity: 0.8
-          })
-        ])
-        break
-      default:
-        newTileLayer = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.03-0&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
-          attribution: '© Яндекс',
-          maxZoom: 19
-        })
-    }
-    
-    newTileLayer.addTo(map)
-    setCurrentTileLayer(newTileLayer)
-    setMapMode(mode)
-  }
+  }, [layers]);
 
   const loadLayers = async () => {
     try {
@@ -168,7 +169,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       
       if (data) {
         setLayers(data)
-        
         const visibility = {}
         data.forEach(layer => {
           visibility[layer.id] = true
@@ -209,23 +209,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
     setDraggedLayer(null)
   }
 
-  const updateObjectVisibility = () => {
-    if (!map || !mapObjects.length) return;
-
-    mapObjects.forEach(obj => {
-      if (obj.leafletLayer) {
-        const isVisible = layerVisibility[obj.layer_id];
-        if (isVisible && !map.hasLayer(obj.leafletLayer)) {
-          map.addLayer(obj.leafletLayer);
-        } else if (!isVisible && map.hasLayer(obj.leafletLayer)) {
-          map.removeLayer(obj.leafletLayer);
-        }
-      }
-    });
-  };
-
   const saveObject = async (formData) => {
-    // Basic validation
     if (!currentObject || !formData.layer_id) {
       alert('Необходимо выбрать слой.');
       return;
@@ -238,7 +222,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
     const { layer_id, ...properties } = formData;
     const selectedLayer = layers.find(l => l.id === layer_id);
 
-    // Contextual validation
     if (selectedLayer) {
         let missingField = '';
         switch (selectedLayer.name) {
@@ -279,12 +262,10 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
     if (error) {
       console.error('Ошибка сохранения объекта:', error);
       alert(`Не удалось сохранить объект: ${error.message}`);
-      // Restore variety_ids if save failed, so user can retry without losing selection
       if (selectedLayer?.name === 'Клумбы') {
           properties.variety_ids = variety_ids;
       }
     } else {
-      // Handle flowerbed composition
       if (selectedLayer?.name === 'Клумбы' && Array.isArray(variety_ids)) {
           const objectId = savedObject.id;
 
@@ -310,28 +291,9 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
     }
   };
 
-  // Helper function to create colored SVG markers
-  const createColoredMarkerIcon = (color) => {
-    const L = require('leaflet');
-    const markerHtml = `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28px" height="28px" fill="${color}">
-        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/>
-      </svg>
-    `;
-
-    return L.divIcon({
-      html: markerHtml,
-      className: '', // important to avoid default styling
-      iconSize: [28, 28],
-      iconAnchor: [14, 28], // Point of the icon that corresponds to marker's location
-      popupAnchor: [0, -28]  // Point from which the popup should open
-    });
-  };
-
   const handleObjectClick = (obj) => {
-    if (isObserver) return;
+    if (isObserver || !map) return;
 
-    const L = require('leaflet');
     let calculatedMetrics = {};
 
     if (obj.geometry) {
@@ -367,7 +329,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
 
   const loadMapObjects = async () => {
     const [{ data: objects, error: objectsError }, { data: compositions, error: compositionsError }] = await Promise.all([
-        supabase.from('map_objects').select(`*, layers (name, color)`),
+        supabase.from('map_objects').select(`*, layers!inner(name, color)`),
         supabase.from('flowerbed_composition').select('flowerbed_id, flower_variety_id')
     ]);
 
@@ -377,7 +339,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
     }
     if (compositionsError) {
       console.error("Ошибка загрузки состава клумб:", compositionsError);
-      // Non-fatal, continue execution
     }
 
     const compositionMap = (compositions || []).reduce((acc, item) => {
@@ -388,56 +349,19 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
         return acc;
     }, {});
 
-    if (objects && map) {
-      mapObjects.forEach(obj => {
-        if (obj.leafletLayer) map.removeLayer(obj.leafletLayer);
-      });
-
-      const L = require('leaflet');
-      const newMapObjects = objects.map(obj => {
+    const newMapObjects = objects.map(obj => {
         if (obj.layers?.name === 'Клумбы') {
             obj.properties.variety_ids = compositionMap[obj.id] || [];
         }
+        return obj;
+    });
 
-        let leafletLayer;
-        const color = obj.layers?.color || '#3388ff';
-        const popupContent = `<strong>${obj.properties.name || 'Без названия'}</strong><br>${obj.properties.description || ''}`;
-
-        if (obj.geometry) {
-          switch (obj.object_type) {
-            case 'marker':
-              leafletLayer = L.marker([...obj.geometry.coordinates].reverse(), { icon: createColoredMarkerIcon(color) });
-              break;
-            case 'line':
-              leafletLayer = L.polyline(obj.geometry.coordinates.map(c => [c[1], c[0]]), { color });
-              break;
-            case 'polygon':
-              leafletLayer = L.polygon(obj.geometry.coordinates[0].map(c => [c[1], c[0]]), { color, fillColor: color, fillOpacity: 0.5 });
-              break;
-            default:
-              console.warn(`Неизвестный тип объекта: ${obj.object_type}`);
-          }
-           if(leafletLayer) {
-              leafletLayer.bindPopup(popupContent).on('click', () => handleObjectClick(obj));
-           }
-        }
-
-        if (leafletLayer && layerVisibility[obj.layer_id] !== false) {
-          leafletLayer.addTo(map);
-        }
-
-        return { ...obj, leafletLayer };
-      });
-
-      setMapObjects(newMapObjects);
-    }
+    setMapObjects(newMapObjects);
   };
 
   const _onCreated = (e) => {
     if (layers.length === 0) {
         alert('Пожалуйста, сначала создайте хотя бы один слой.');
-        // Leaflet.Draw doesn't have a simple way to cancel the creation event,
-        // so we just return without opening the modal. The drawn layer will be discarded.
         return;
     }
 
@@ -537,7 +461,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       setEditingLayer(null)
       setNewLayerData({ name: '', color: '#4CAF50' })
       loadLayers()
-      loadMapObjects()
     } else {
       console.error('Не удалось обновить слой, данные не вернулись.')
       alert('Не удалось обновить слой.')
@@ -549,8 +472,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       return;
     }
 
-    // Благодаря "ON DELETE CASCADE" в базе данных, нам нужно удалить только слой.
-    // Связанные объекты в 'map_objects' удалятся автоматически.
     const { error } = await supabase
       .from('layers')
       .delete()
@@ -562,7 +483,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
     } else {
       alert('Слой и все связанные объекты успешно удалены');
       loadLayers();
-      loadMapObjects(); // Перезагружаем объекты, чтобы они исчезли с карты
     }
   };
 
@@ -593,7 +513,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
         padding: '20px',
         zIndex: 1000
       }}>
-        {/* КОМПАКТНАЯ ШАПКА */}
         <div style={{ marginBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
             <button 
@@ -606,9 +525,6 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
                 padding: '8px',
                 marginRight: '8px',
                 color: '#999',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
                 borderRadius: '6px',
                 transition: 'background-color 0.2s'
               }}
@@ -621,33 +537,13 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
             </button>
             
             <div style={{ display: 'flex', alignItems: 'baseline' }}>
-              <h1 style={{ 
-                fontSize: '24px', 
-                margin: '0',
-                color: '#4A5D23'
-              }}>
-                Grasscutter
-              </h1>
-              <span style={{
-                fontSize: '12px',
-                color: '#999',
-                marginLeft: '8px',
-                fontWeight: '400'
-              }}>
-                1.0
-              </span>
+              <h1 style={{ fontSize: '24px', margin: '0', color: '#4A5D23' }}>Grasscutter</h1>
+              <span style={{ fontSize: '12px', color: '#999', marginLeft: '8px', fontWeight: '400' }}>1.0</span>
             </div>
           </div>
-          <div style={{ 
-            height: '1px', 
-            background: '#e0e0e0',
-            margin: '10px 0'
-          }}></div>
+          <div style={{ height: '1px', background: '#e0e0e0', margin: '10px 0' }}></div>
         </div>
 
-        {/* Панель инструментов Leaflet.Draw будет добавлена на карту */}
-
-        {/* КОМПАКТНЫЕ СЛОИ */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div style={{ 
             display: 'flex', 
@@ -655,14 +551,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
             alignItems: 'center',
             marginBottom: '10px'
           }}>
-            <h3 style={{ 
-              fontSize: '16px',
-              color: '#333',
-              margin: '0',
-              fontWeight: '600'
-            }}>
-              Слои
-            </h3>
+            <h3 style={{ fontSize: '16px', color: '#333', margin: '0', fontWeight: '600' }}>Слои</h3>
             <button 
               onClick={createLayer}
               disabled={isObserver}
@@ -685,7 +574,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
           </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {layers.map((layer, index) => (
+            {layers.map((layer) => (
               <div
                 key={layer.id} 
                 draggable
@@ -698,29 +587,16 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
                   fontSize: '14px',
                   padding: '8px',
                   borderRadius: '4px',
-                  backgroundColor: 'transparent',
-                  border: '1px solid transparent',
                   cursor: 'grab'
                 }}
               >
-                <div style={{ 
-                  marginRight: '6px', 
-                  color: '#ccc',
-                  fontSize: '12px',
-                  cursor: 'grab'
-                }}>
-                  ⋮⋮
-                </div>
+                <div style={{ marginRight: '6px', color: '#ccc', fontSize: '12px', cursor: 'grab' }}>⋮⋮</div>
                 <button
                   onClick={() => deleteLayer(layer)}
                   disabled={isObserver}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: isObserver ? 'not-allowed' : 'pointer',
-                    padding: '2px',
-                    marginRight: '6px',
-                    color: isObserver ? '#ccc' : '#666'
+                    background: 'none', border: 'none', cursor: isObserver ? 'not-allowed' : 'pointer',
+                    padding: '2px', marginRight: '6px', color: isObserver ? '#ccc' : '#666'
                   }}
                   title="Удалить слой"
                 >
@@ -732,12 +608,8 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
                   onClick={() => editLayer(layer)}
                   disabled={isObserver}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: isObserver ? 'not-allowed' : 'pointer',
-                    padding: '2px',
-                    marginRight: '8px',
-                    color: isObserver ? '#ccc' : '#666'
+                    background: 'none', border: 'none', cursor: isObserver ? 'not-allowed' : 'pointer',
+                    padding: '2px', marginRight: '8px', color: isObserver ? '#ccc' : '#666'
                   }}
                   title="Редактировать слой"
                 >
@@ -745,23 +617,9 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
                     <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
                   </svg>
                 </button>
-                <div 
-                  style={{
-                    width: '12px',
-                    height: '12px',
-                    backgroundColor: layer.color,
-                    borderRadius: '2px',
-                    marginRight: '8px'
-                  }}
-                ></div>
+                <div style={{ width: '12px', height: '12px', backgroundColor: layer.color, borderRadius: '2px', marginRight: '8px' }}></div>
                 <span style={{ flex: 1, color: '#333' }}>{layer.name}</span>
-                <label style={{ 
-                  position: 'relative', 
-                  display: 'inline-block', 
-                  width: '32px', 
-                  height: '18px',
-                  cursor: 'pointer'
-                }}>
+                <label style={{ position: 'relative', display: 'inline-block', width: '32px', height: '18px', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={layerVisibility[layer.id] !== false}
@@ -769,24 +627,14 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
                     style={{ display: 'none' }}
                   />
                   <span style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
+                    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                     backgroundColor: layerVisibility[layer.id] !== false ? '#4A5D23' : '#ccc',
-                    borderRadius: '18px',
-                    transition: 'all 0.2s'
+                    borderRadius: '18px', transition: 'all 0.2s'
                   }}>
                     <span style={{
-                      position: 'absolute',
-                      content: '',
-                      height: '14px',
-                      width: '14px',
+                      position: 'absolute', content: '', height: '14px', width: '14px',
                       left: layerVisibility[layer.id] !== false ? '16px' : '2px',
-                      bottom: '2px',
-                      backgroundColor: 'white',
-                      borderRadius: '50%',
+                      bottom: '2px', backgroundColor: 'white', borderRadius: '50%',
                       transition: 'all 0.2s'
                     }}></span>
                   </span>
@@ -797,100 +645,46 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
         </div>
       </div>
 
-      <div style={{ 
-        flex: 1, 
-        height: '100vh', 
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
-        <div style={{
-          position: 'absolute',
-          top: '15px',
-          right: '15px',
-          zIndex: 1000,
-          display: 'flex',
-          backgroundColor: 'white',
-          borderRadius: '6px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          overflow: 'hidden'
-        }}>
-          <button
-            onClick={() => switchMapMode('scheme')}
-            style={{
-              padding: '8px 12px',
-              border: 'none',
-              backgroundColor: mapMode === 'scheme' ? '#4A5D23' : 'white',
-              color: mapMode === 'scheme' ? 'white' : '#333',
-              fontSize: '12px',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            Схема
-          </button>
-          <button
-            onClick={() => switchMapMode('satellite')}
-            style={{
-              padding: '8px 12px',
-              border: 'none',
-              borderLeft: '1px solid #e0e0e0',
-              backgroundColor: mapMode === 'satellite' ? '#4A5D23' : 'white',
-              color: mapMode === 'satellite' ? 'white' : '#333',
-              fontSize: '12px',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            Спутник
-          </button>
-          <button
-            onClick={() => switchMapMode('hybrid')}
-            style={{
-              padding: '8px 12px',
-              border: 'none',
-              borderLeft: '1px solid #e0e0e0',
-              backgroundColor: mapMode === 'hybrid' ? '#4A5D23' : 'white',
-              color: mapMode === 'hybrid' ? 'white' : '#333',
-              fontSize: '12px',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            Гибрид
-          </button>
+      <div style={{ flex: 1, height: '100vh', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '15px', right: '15px', zIndex: 1000, display: 'flex', backgroundColor: 'white', borderRadius: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+          <button onClick={() => setMapMode('scheme')} style={{ padding: '8px 12px', border: 'none', backgroundColor: mapMode === 'scheme' ? '#4A5D23' : 'white', color: mapMode === 'scheme' ? 'white' : '#333', fontSize: '12px', cursor: 'pointer', transition: 'all 0.2s' }}>Схема</button>
+          <button onClick={() => setMapMode('satellite')} style={{ padding: '8px 12px', border: 'none', borderLeft: '1px solid #e0e0e0', backgroundColor: mapMode === 'satellite' ? '#4A5D23' : 'white', color: mapMode === 'satellite' ? 'white' : '#333', fontSize: '12px', cursor: 'pointer', transition: 'all 0.2s' }}>Спутник</button>
+          <button onClick={() => setMapMode('hybrid')} style={{ padding: '8px 12px', border: 'none', borderLeft: '1px solid #e0e0e0', backgroundColor: mapMode === 'hybrid' ? '#4A5D23' : 'white', color: mapMode === 'hybrid' ? 'white' : '#333', fontSize: '12px', cursor: 'pointer', transition: 'all 0.2s' }}>Гибрид</button>
         </div>
         
-        <div 
-          ref={mapRef} 
-          style={{ 
-            height: '100%', 
-            width: '100%',
-            position: 'absolute',
-            top: 0,
-            left: 0
-          }} 
+        <MapContainer
+          center={[55.709362, 52.308385]}
+          zoom={15}
+          style={{ height: '100%', width: '100%' }}
+          whenCreated={setMap}
         >
-          <FeatureGroup>
-            {!isObserver && (
-              <EditControl
-                position="topright"
-                onCreated={_onCreated}
-                draw={{
-                  rectangle: false,
-                  circle: false,
-                  circlemarker: false,
-                  polygon: {
-                    allowIntersection: false,
-                    drawError: {
-                      color: '#e1e100',
-                      message: '<strong>Ошибка!</strong> Нельзя рисовать самопересекающиеся полигоны!',
-                    },
-                  },
-                }}
-              />
-            )}
-          </FeatureGroup>
-        </div>
+            <MapModeSwitcher mode={mapMode} />
+            <FeatureGroup>
+                {!isObserver && (
+                <EditControl
+                    position="topright"
+                    onCreated={_onCreated}
+                    draw={{
+                        rectangle: false,
+                        circle: false,
+                        circlemarker: false,
+                        polygon: {
+                            allowIntersection: false,
+                            drawError: {
+                                color: '#e1e100',
+                                message: '<strong>Ошибка!</strong> Нельзя рисовать самопересекающиеся полигоны!',
+                            },
+                        },
+                    }}
+                />
+                )}
+            </FeatureGroup>
+            <RenderMapObjects
+                mapObjects={mapObjects}
+                layerVisibility={layerVisibility}
+                handleObjectClick={handleObjectClick}
+            />
+        </MapContainer>
       </div>
 
       {isModalOpen && (
@@ -908,227 +702,46 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       )}
 
       {showCreateLayerModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 2000
-        }}>
-          <div style={{
-            background: 'white',
-            padding: '25px',
-            borderRadius: '12px',
-            minWidth: '400px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
-          }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+          <div style={{ background: 'white', padding: '25px', borderRadius: '12px', minWidth: '400px', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
             <h3 style={{ margin: '0 0 20px 0' }}>Создание нового слоя</h3>
-            
             <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Название слоя*:
-              </label>
-              <input
-                type="text"
-                value={newLayerData.name}
-                onChange={(e) => setNewLayerData({...newLayerData, name: e.target.value})}
-                style={{ 
-                  width: '100%', 
-                  padding: '8px', 
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-                placeholder="Введите название слоя"
-              />
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Название слоя*:</label>
+              <input type="text" value={newLayerData.name} onChange={(e) => setNewLayerData({...newLayerData, name: e.target.value})} style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }} placeholder="Введите название слоя" />
             </div>
-
             <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Цвет:
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Цвет:</label>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <input
-                  type="color"
-                  value={newLayerData.color}
-                  onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})}
-                  style={{ 
-                    width: '50px', 
-                    height: '35px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                />
-                <input
-                  type="text"
-                  value={newLayerData.color}
-                  onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})}
-                  style={{ 
-                    flex: 1,
-                    padding: '8px', 
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px'
-                  }}
-                  placeholder="#4CAF50"
-                />
+                <input type="color" value={newLayerData.color} onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})} style={{ width: '50px', height: '35px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }} />
+                <input type="text" value={newLayerData.color} onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})} style={{ flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }} placeholder="#4CAF50" />
               </div>
             </div>
-
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button 
-                onClick={saveNewLayer}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  backgroundColor: '#4A5D23',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Создать
-              </button>
-              <button 
-                onClick={() => {
-                  setShowCreateLayerModal(false)
-                  setNewLayerData({ name: '', color: '#4CAF50' })
-                }}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  backgroundColor: '#757575',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Отмена
-              </button>
+              <button onClick={saveNewLayer} style={{ flex: 1, padding: '10px', backgroundColor: '#4A5D23', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px' }}>Создать</button>
+              <button onClick={() => { setShowCreateLayerModal(false); setNewLayerData({ name: '', color: '#4CAF50' }); }} style={{ flex: 1, padding: '10px', backgroundColor: '#757575', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px' }}>Отмена</button>
             </div>
           </div>
         </div>
       )}
 
       {showEditLayerModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 2000
-        }}>
-          <div style={{
-            background: 'white',
-            padding: '25px',
-            borderRadius: '12px',
-            minWidth: '400px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
-          }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}>
+          <div style={{ background: 'white', padding: '25px', borderRadius: '12px', minWidth: '400px', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
             <h3 style={{ margin: '0 0 20px 0' }}>Редактирование слоя</h3>
-            
             <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Название слоя*:
-              </label>
-              <input
-                type="text"
-                value={newLayerData.name}
-                onChange={(e) => setNewLayerData({...newLayerData, name: e.target.value})}
-                style={{ 
-                  width: '100%', 
-                  padding: '8px', 
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-                placeholder="Введите название слоя"
-              />
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Название слоя*:</label>
+              <input type="text" value={newLayerData.name} onChange={(e) => setNewLayerData({...newLayerData, name: e.target.value})} style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }} placeholder="Введите название слоя" />
             </div>
-
             <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                Цвет:
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Цвет:</label>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <input
-                  type="color"
-                  value={newLayerData.color}
-                  onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})}
-                  style={{ 
-                    width: '50px', 
-                    height: '35px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                />
-                <input
-                  type="text"
-                  value={newLayerData.color}
-                  onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})}
-                  style={{ 
-                    flex: 1,
-                    padding: '8px', 
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px'
-                  }}
-                  placeholder="#4CAF50"
-                />
+                <input type="color" value={newLayerData.color} onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})} style={{ width: '50px', height: '35px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }}/>
+                <input type="text" value={newLayerData.color} onChange={(e) => setNewLayerData({...newLayerData, color: e.target.value})} style={{ flex: 1, padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }} placeholder="#4CAF50"/>
               </div>
             </div>
-
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button 
-                onClick={saveEditedLayer}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  backgroundColor: '#4A5D23',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Сохранить
-              </button>
-              <button 
-                onClick={() => {
-                  setShowEditLayerModal(false)
-                  setEditingLayer(null)
-                  setNewLayerData({ name: '', color: '#4CAF50' })
-                }}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  backgroundColor: '#757575',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Отмена
-              </button>
+              <button onClick={saveEditedLayer} style={{ flex: 1, padding: '10px', backgroundColor: '#4A5D23', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px' }}>Сохранить</button>
+              <button onClick={() => { setShowEditLayerModal(false); setEditingLayer(null); setNewLayerData({ name: '', color: '#4CAF50' }); }} style={{ flex: 1, padding: '10px', backgroundColor: '#757575', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px' }}>Отмена</button>
             </div>
           </div>
         </div>
@@ -1137,4 +750,4 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   )
 }
 
-export default MapWithDrawing
+export default MapWithDrawing;
