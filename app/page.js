@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import Lottie from 'lottie-react'
+import { supabase } from '../lib/supabase'
 
 // Импортируем анимацию
 import animationData from './animation.json'
@@ -31,6 +32,26 @@ export default function Home() {
     setIsObserverMap(isObserver);
     setMode('management'); // 'management' now simply means 'show the map'
   };
+
+  useEffect(() => {
+    const signIn = async () => {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: 'test_user@mail.yes',
+        password: '123456',
+      });
+
+      if (error) {
+        console.error('Ошибка автоматического входа:', error.message);
+        // We can alert the user, but for now, we'll just log it
+        // to avoid being too intrusive for a temporary solution.
+      } else {
+        console.log('Автоматический вход выполнен успешно для:', data.user.email);
+      }
+    };
+
+    // Run this only once on initial load
+    signIn();
+  }, []);
 
   return (
     <div style={{ height: '100vh', width: '100vw' }}>
