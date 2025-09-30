@@ -38,11 +38,11 @@ const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) =>
     return (
         <>
             {mapObjects.map(obj => {
-                if (!layerVisibility[obj.layer_id]) {
+                if (!layerVisibility[obj.layer_id] || !obj.layers) {
                     return null;
                 }
 
-                const color = obj.layers?.color || '#3388ff';
+                const color = obj.layers.color || '#3388ff';
 
                 let details = `Слой: ${obj.layers.name}<br>`;
                 if(obj.area) details += `Площадь: ${obj.area}<br>`;
@@ -156,10 +156,10 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   }, []);
 
   useEffect(() => {
-    if (layers.length > 0) {
+    if (map && layers.length > 0) {
       loadMapObjects();
     }
-  }, [layers]);
+  }, [map, layers]);
 
   const loadLayers = async () => {
     try {
@@ -305,17 +305,30 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   };
 
   const handleObjectClick = (obj) => {
-    if (isObserver) return;
-    // All metrics are now pre-calculated in loadMapObjects
-    setCurrentObject(obj);
+    if (isObserver || !map) return;
+
+    const objectToEdit = { ...obj };
+
+    if (objectToEdit.geometry) {
+      if (objectToEdit.object_type === 'line' && objectToEdit.layers.name === 'Кустарники') {
+        let length = 0;
+        const latLngs = objectToEdit.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
+        if (latLngs.length > 1) {
+          for (let i = 0; i < latLngs.length - 1; i++) {
+            length += map.distance(latLngs[i], latLngs[i + 1]);
+          }
+        }
+        objectToEdit.length = `${length.toFixed(2)} м`;
+      }
+    }
+
+    setCurrentObject(objectToEdit);
     setIsModalOpen(true);
   };
 
   const loadMapObjects = async () => {
-    if (!map) return;
-
     const [{ data: objects, error: objectsError }, { data: compositions, error: compositionsError }] = await Promise.all([
-        supabase.from('map_objects').select(`*, layers!inner(name, color)`),
+        supabase.from('map_objects').select(`*, layers(name, color)`),
         supabase.from('flowerbed_composition').select('flowerbed_id, flower_variety_id')
     ]);
 
@@ -340,21 +353,11 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
             obj.properties.variety_ids = compositionMap[obj.id] || [];
         }
 
-        // Pre-calculate metrics and attach to the object
         if (obj.geometry) {
             if (obj.object_type === 'polygon' && (obj.layers.name === 'Газоны' || obj.layers.name === 'Клумбы')) {
                 const latLngs = obj.geometry.coordinates[0].map(c => [c[1], c[0]]);
                 const area = L.GeometryUtil.geodesicArea(latLngs);
                 obj.area = `${area.toFixed(2)} м²`;
-            } else if (obj.object_type === 'line' && obj.layers.name === 'Кустарники') {
-                let length = 0;
-                const latLngs = obj.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
-                if (latLngs.length > 1) {
-                    for (let i = 0; i < latLngs.length - 1; i++) {
-                        length += map.distance(latLngs[i], latLngs[i + 1]);
-                    }
-                }
-                obj.length = `${length.toFixed(2)} м`;
             }
              let firstCoord = obj.object_type === 'marker'
               ? obj.geometry.coordinates
