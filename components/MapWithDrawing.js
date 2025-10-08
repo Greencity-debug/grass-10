@@ -34,7 +34,7 @@ const createColoredMarkerIcon = (color) => {
 };
 
 // Component to render map objects declaratively
-const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) => {
+const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick, addLeafletIdToObject }) => {
     return (
         <>
             {mapObjects.map(obj => {
@@ -42,14 +42,20 @@ const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) =>
                     return null;
                 }
 
-                const color = obj.layers?.color || '#3388ff';
+                const color = obj.layers.color || '#3388ff';
 
-                let details = `Слой: ${obj.layers?.name}<br>`;
+                let details = `Слой: ${obj.layers.name}<br>`;
                 if(obj.area) details += `Площадь: ${obj.area}<br>`;
                 if(obj.length) details += `Длина: ${obj.length}<br>`;
                 if(obj.properties?.age) details += `Возраст: ${obj.properties.age} лет<br>`;
 
                 const popupContent = `<strong>${obj.name || 'Без названия'}</strong><br>${details}${obj.description || ''}`;
+
+                const assignLeafletId = (layer) => {
+                    if (obj.id && layer?._leaflet_id) {
+                        addLeafletIdToObject(obj.id, layer._leaflet_id);
+                    }
+                };
 
                 switch (obj.object_type) {
                     case 'marker':
@@ -59,6 +65,7 @@ const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) =>
                                 position={[...obj.geometry.coordinates].reverse()}
                                 icon={createColoredMarkerIcon(color)}
                                 eventHandlers={{ click: () => handleObjectClick(obj) }}
+                                whenCreated={assignLeafletId}
                             >
                                 <Popup>{popupContent}</Popup>
                             </Marker>
@@ -71,6 +78,7 @@ const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) =>
                                 positions={linePositions}
                                 pathOptions={{ color }}
                                 eventHandlers={{ click: () => handleObjectClick(obj) }}
+                                whenCreated={assignLeafletId}
                             >
                                 <Popup>{popupContent}</Popup>
                             </Polyline>
@@ -83,6 +91,7 @@ const RenderMapObjects = ({ mapObjects, layerVisibility, handleObjectClick }) =>
                                 positions={polygonPositions}
                                 pathOptions={{ color, fillColor: color, fillOpacity: 0.5 }}
                                 eventHandlers={{ click: () => handleObjectClick(obj) }}
+                                whenCreated={assignLeafletId}
                             >
                                 <Popup>{popupContent}</Popup>
                             </Polygon>
@@ -150,6 +159,11 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   const [draggedLayer, setDraggedLayer] = useState(null);
   const [newLayerData, setNewLayerData] = useState({ name: '', color: '#4CAF50' });
   const [map, setMap] = useState(null);
+  const leafletIdToObjectIdMap = useRef(new Map());
+
+  const addLeafletIdToObject = (objectId, leafletId) => {
+    leafletIdToObjectIdMap.current.set(leafletId, objectId);
+  };
 
   useEffect(() => {
     loadLayers();
@@ -282,13 +296,13 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       if (selectedLayer?.name === 'Клумбы' && Array.isArray(variety_ids)) {
           const objectId = savedObject.id;
 
-          const { error: deleteError } = await supabase.from('flowerbed_composition').delete().eq('flowerbed_id', objectId);
+          const { error: deleteError } = await supabase.from('flowerbed_composition').delete().eq('object_id', objectId);
 
           if (deleteError) {
               console.error('Ошибка обновления состава клумбы (удаление):', deleteError);
               alert('Произошла ошибка при обновлении состава клумбы. Основные данные сохранены.');
           } else if (variety_ids.length > 0) {
-              const compositionToInsert = variety_ids.map(id => ({ flowerbed_id: objectId, flower_variety_id: id }));
+              const compositionToInsert = variety_ids.map(id => ({ object_id: objectId, variety_id: id }));
               const { error: insertError } = await supabase.from('flowerbed_composition').insert(compositionToInsert);
               if (insertError) {
                   console.error('Ошибка обновления состава клумбы (вставка):', insertError);
@@ -327,46 +341,88 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
   };
 
   const loadMapObjects = async () => {
-    const [{ data: objects, error: objectsError }, { data: compositions, error: compositionsError }] = await Promise.all([
-        supabase.from('map_objects').select(`*, layers!inner(name, color)`),
-        supabase.from('flowerbed_composition').select('flowerbed_id, flower_variety_id')
+    leafletIdToObjectIdMap.current.clear();
+    // 1. Создаем карту слоев для быстрого доступа.
+    // Это необходимо, так как мы будем загружать объекты отдельно
+    // и нам нужно будет быстро находить информацию о слое по его ID.
+    const layersMap = layers.reduce((acc, layer) => {
+      acc[layer.id] = layer;
+      return acc;
+    }, {});
+
+    // 2. Загружаем все данные параллельно для эффективности.
+    const [
+      { data: objects, error: objectsError },
+      { data: compositions, error: compositionsError }
+    ] = await Promise.all([
+      supabase.from('map_objects').select('*'),
+      supabase.from('flowerbed_composition').select('object_id, variety_id')
     ]);
 
     if (objectsError) {
       console.error("Ошибка загрузки объектов:", objectsError);
+      alert("Не удалось загрузить объекты с карты.");
       return;
     }
     if (compositionsError) {
-      console.error("Ошибка загрузки состава клумб:", compositionsError);
+      // Это не критичная ошибка, просто выводим в консоль.
+      console.warn("Ошибка загрузки состава клумб:", compositionsError);
     }
 
+    // 3. Обрабатываем данные о составе клумб.
     const compositionMap = (compositions || []).reduce((acc, item) => {
-        if (!acc[item.flowerbed_id]) {
-            acc[item.flowerbed_id] = [];
-        }
-        acc[item.flowerbed_id].push(item.flower_variety_id);
-        return acc;
+      if (!acc[item.object_id]) {
+        acc[item.object_id] = [];
+      }
+      acc[item.object_id].push(item.variety_id);
+      return acc;
     }, {});
 
-    const newMapObjects = objects.map(obj => {
-        if (obj.layers?.name === 'Клумбы') {
-            obj.properties.variety_ids = compositionMap[obj.id] || [];
+    // 4. "Присоединяем" информацию о слоях к объектам и вычисляем доп. поля.
+    const newMapObjects = objects
+      .map(obj => {
+        const layerInfo = layersMap[obj.layer_id];
+
+        // Если для объекта не найден слой, пропускаем его, чтобы избежать ошибок.
+        if (!layerInfo) {
+          console.warn(`Объект с ID ${obj.id} ссылается на несуществующий слой с ID ${obj.layer_id}. Пропускаем.`);
+          return null;
         }
 
+        // Вручную добавляем информацию о слое к объекту.
+        obj.layers = { name: layerInfo.name, color: layerInfo.color };
+
+        // Добавляем ID сортов для клумб.
+        if (layerInfo.name === 'Клумбы') {
+          obj.properties.variety_ids = compositionMap[obj.id] || [];
+        }
+
+        // Вычисляем площадь и длину, если это применимо.
         if (obj.geometry) {
-            if (obj.object_type === 'polygon' && (obj.layers.name === 'Газоны' || obj.layers.name === 'Клумбы')) {
-                const latLngs = obj.geometry.coordinates[0].map(c => [c[1], c[0]]);
-                const area = L.GeometryUtil.geodesicArea(latLngs);
-                obj.area = `${area.toFixed(2)} м²`;
+          try {
+            if (obj.object_type === 'polygon' && (layerInfo.name === 'Газоны' || layerInfo.name === 'Клумбы')) {
+              const latLngs = obj.geometry.coordinates[0].map(c => [c[1], c[0]]);
+              const area = L.GeometryUtil.geodesicArea(latLngs);
+              obj.area = `${area.toFixed(2)} м²`;
             }
-             let firstCoord = obj.object_type === 'marker'
-              ? obj.geometry.coordinates
-              : (obj.geometry.coordinates[0][0] || obj.geometry.coordinates[0]);
-            obj.coordinates_str = `${firstCoord[1].toFixed(5)}, ${firstCoord[0].toFixed(5)}`;
+            if (obj.object_type === 'line' && layerInfo.name === 'Кустарники') {
+              let length = 0;
+              const latLngs = obj.geometry.coordinates.map(c => L.latLng(c[1], c[0]));
+              if (latLngs.length > 1 && map) {
+                for (let i = 0; i < latLngs.length - 1; i++) {
+                  length += map.distance(latLngs[i], latLngs[i + 1]);
+                }
+              }
+              obj.length = `${length.toFixed(2)} м`;
+            }
+          } catch (e) {
+            console.error(`Ошибка вычисления геометрии для объекта ID ${obj.id}:`, e);
+          }
         }
 
         return obj;
-    });
+      })
+      .filter(Boolean); // Удаляем null значения (объекты без слоя).
 
     setMapObjects(newMapObjects);
   };
@@ -391,6 +447,75 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
       properties: {},
     });
     setIsModalOpen(true);
+  };
+
+  const _onEdited = async (e) => {
+    const updatedObjects = [];
+    e.layers.eachLayer(layer => {
+        const geoJSON = layer.toGeoJSON();
+        const objectId = leafletIdToObjectIdMap.current.get(layer._leaflet_id);
+
+        if (objectId) {
+            updatedObjects.push({
+                id: objectId,
+                geometry: geoJSON.geometry
+            });
+        }
+    });
+
+    if (updatedObjects.length > 0) {
+        // Используем Promise.all для параллельного выполнения запросов
+        const updatePromises = updatedObjects.map(obj =>
+            supabase
+                .from('map_objects')
+                .update({ geometry: obj.geometry })
+                .eq('id', obj.id)
+        );
+
+        const results = await Promise.all(updatePromises);
+        const errors = results.filter(res => res.error);
+
+        if (errors.length > 0) {
+            console.error('Ошибки при обновлении объектов:', errors);
+            alert(`Не удалось обновить ${errors.length} из ${updatedObjects.length} объектов.`);
+        } else {
+            alert('Геометрия объектов успешно обновлена!');
+        }
+        loadMapObjects(); // Перезагружаем объекты для синхронизации
+    }
+  };
+
+  const _onDeleted = async (e) => {
+      const deletedIds = [];
+      e.layers.eachLayer(layer => {
+          const objectId = leafletIdToObjectIdMap.current.get(layer._leaflet_id);
+          if (objectId) {
+              deletedIds.push(objectId);
+          }
+      });
+
+      if (deletedIds.length > 0) {
+          if (!confirm(`Вы уверены, что хотите удалить ${deletedIds.length} объект(ов)?`)) {
+              // Если пользователь отменил, нужно перезагрузить слои,
+              // чтобы отмененные изменения не остались на карте.
+              loadMapObjects();
+              return;
+          }
+
+          const { error } = await supabase
+              .from('map_objects')
+              .delete()
+              .in('id', deletedIds);
+
+          if (error) {
+              console.error('Ошибка удаления объектов:', error);
+              alert(`Не удалось удалить объекты: ${error.message}`);
+          } else {
+              alert('Объекты успешно удалены!');
+              // loadMapObjects() будет вызван в любом случае, чтобы обновить состояние
+          }
+          loadMapObjects();
+      }
   };
 
   const deleteObject = async () => {
@@ -678,6 +803,8 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
                 <EditControl
                     position="topleft"
                     onCreated={_onCreated}
+                    onEdited={_onEdited}
+                    onDeleted={_onDeleted}
                     draw={{
                         rectangle: false,
                         circle: false,
@@ -697,6 +824,7 @@ const MapWithDrawing = ({ onBack, isObserver }) => {
                 mapObjects={mapObjects}
                 layerVisibility={layerVisibility}
                 handleObjectClick={handleObjectClick}
+                addLeafletIdToObject={addLeafletIdToObject}
             />
         </MapContainer>
       </div>

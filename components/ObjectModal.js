@@ -72,7 +72,22 @@ const ObjectModal = ({ isOpen, onClose, onSave, onDelete, objectData, layers }) 
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+
+    // Если меняется слой при создании нового объекта, сбрасываем все специфичные поля
+    if (name === 'layer_id' && !objectData.id) {
+      setFormData(prev => ({
+        name: prev.name,
+        description: prev.description,
+        layer_id: value,
+        // Сбрасываем все возможные динамические поля, чтобы они не отправились в БД
+        age: undefined,
+        variety_id: undefined,
+        type_id: undefined,
+        variety_ids: [],
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleMultiSelectChange = (selectedOptions) => {
